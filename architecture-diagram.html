@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DocuPop — High-Level Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 40px 20px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 14px;
+    color: #94a3b8;
+    margin-bottom: 48px;
+  }
+
+  .diagram {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    align-items: center;
+  }
+
+  /* --- Layer Boxes --- */
+  .layer {
+    width: 100%;
+    border-radius: 16px;
+    padding: 24px;
+    position: relative;
+  }
+  .layer-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .layer-label .dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  }
+
+  /* Frontend */
+  .frontend { background: #1a1f35; border: 1px solid #2d3555; }
+  .frontend .layer-label { color: #818cf8; }
+  .frontend .dot { background: #818cf8; }
+
+  /* API Gateway */
+  .gateway { background: #1a2a1f; border: 1px solid #2d4535; max-width: 320px; }
+  .gateway .layer-label { color: #4ade80; }
+  .gateway .dot { background: #4ade80; }
+
+  /* Backend */
+  .backend { background: #1f1a2e; border: 1px solid #352d55; }
+  .backend .layer-label { color: #c084fc; }
+  .backend .dot { background: #c084fc; }
+
+  /* AWS Services */
+  .aws-services { background: #1a2535; border: 1px solid #2d3d55; }
+  .aws-services .layer-label { color: #38bdf8; }
+  .aws-services .dot { background: #38bdf8; }
+
+  /* OCR Pipeline */
+  .ocr-pipeline { background: #2a1a1a; border: 1px solid #553030; }
+  .ocr-pipeline .layer-label { color: #fb923c; }
+  .ocr-pipeline .dot { background: #fb923c; }
+
+  /* Infra */
+  .infra { background: #1a1a1a; border: 1px solid #333; }
+  .infra .layer-label { color: #a1a1aa; }
+  .infra .dot { background: #a1a1aa; }
+
+  /* --- Cards inside layers --- */
+  .cards {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .card {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 16px;
+    flex: 1;
+    min-width: 160px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #f1f5f9;
+  }
+  .card-items {
+    list-style: none;
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.8;
+  }
+  .card-items li::before {
+    content: "›";
+    margin-right: 6px;
+    color: #64748b;
+  }
+  .tech-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin: 2px 2px;
+    background: rgba(255,255,255,0.08);
+    color: #cbd5e1;
+  }
+
+  /* --- Arrows --- */
+  .arrow-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 0;
+  }
+  .arrow-line {
+    width: 2px;
+    height: 18px;
+    background: linear-gradient(to bottom, rgba(148,163,184,0.5), rgba(148,163,184,0.2));
+  }
+  .arrow-label {
+    font-size: 10px;
+    color: #64748b;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .arrow-head {
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid rgba(148,163,184,0.5);
+  }
+
+  /* --- Split Layout --- */
+  .split {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+  }
+  .split > * { flex: 1; }
+
+  /* --- Data flow --- */
+  .flow-section {
+    margin-top: 48px;
+    width: 100%;
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .flow-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 20px;
+    text-align: center;
+  }
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    overflow-x: auto;
+    padding: 16px 0;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .flow-step {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 10px;
+    padding: 14px 18px;
+    min-width: 140px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .flow-step-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: #f1f5f9;
+    margin-bottom: 4px;
+  }
+  .flow-step-desc {
+    font-size: 10px;
+    color: #64748b;
+  }
+  .flow-arrow {
+    font-size: 18px;
+    color: #475569;
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+
+  /* --- DB Schema mini --- */
+  .db-tables {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .db-table {
+    background: rgba(56,189,248,0.08);
+    border: 1px solid rgba(56,189,248,0.15);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #38bdf8;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+
+  .horizontal-cards {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>DocuPop — High-Level Architecture</h1>
+<p class="subtitle">Cloud-native document management & intelligent OCR processing platform</p>
+
+<div class="diagram">
+
+  <!-- ===== FRONTEND ===== -->
+  <div class="layer frontend">
+    <div class="layer-label"><span class="dot"></span> Frontend — AWS Amplify</div>
+    <div style="margin-bottom:10px">
+      <span class="tech-badge">Next.js 16</span>
+      <span class="tech-badge">React 19</span>
+      <span class="tech-badge">TypeScript</span>
+      <span class="tech-badge">Tailwind CSS</span>
+      <span class="tech-badge">shadcn/ui</span>
+      <span class="tech-badge">AG Grid</span>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="card-title">Auth Pages</div>
+        <ul class="card-items">
+          <li>Login / Signup</li>
+          <li>MFA Setup & Verify</li>
+          <li>Password Reset</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Documents</div>
+        <ul class="card-items">
+          <li>Drag & Drop Upload</li>
+          <li>List / View / Download</li>
+          <li>Presigned URL Access</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Processing Center</div>
+        <ul class="card-items">
+          <li>Queue OCR Jobs</li>
+          <li>Select Target Table</li>
+          <li>Monitor Status (5s poll)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Data Hub</div>
+        <ul class="card-items">
+          <li>AG Grid Spreadsheet</li>
+          <li>Field Mappings</li>
+          <li>Confidence Scores</li>
+          <li>CSV Import / Export</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-container">
+    <div class="arrow-line"></div>
+    <div class="arrow-label">https + jwt</div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ===== API GATEWAY ===== -->
+  <div class="layer gateway" style="text-align:center;">
+    <div class="layer-label" style="justify-content:center;"><span class="dot"></span> AWS API Gateway</div>
+    <div style="font-size:12px; color:#94a3b8;">Regional HTTP endpoint · CORS enabled</div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-container">
+    <div class="arrow-line"></div>
+    <div class="arrow-label">proxy</div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ===== BACKEND ===== -->
+  <div class="layer backend">
+    <div class="layer-label"><span class="dot"></span> API Lambda — Python 3.11</div>
+    <div style="margin-bottom:10px">
+      <span class="tech-badge">handler.py</span>
+      <span class="tech-badge">pg8000</span>
+      <span class="tech-badge">boto3</span>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <div class="card-title">Auth Routes</div>
+        <ul class="card-items">
+          <li>POST /auth/signup</li>
+          <li>POST /auth/login</li>
+          <li>GET /auth/me</li>
+          <li>MFA + Password Reset</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Document Routes</div>
+        <ul class="card-items">
+          <li>POST /documents (upload)</li>
+          <li>GET /documents</li>
+          <li>GET /documents/:id/download</li>
+          <li>DELETE /documents/:id</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Processing Routes</div>
+        <ul class="card-items">
+          <li>POST /processing (create job)</li>
+          <li>GET /processing (list jobs)</li>
+          <li>Enqueues to SQS</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Data Routes</div>
+        <ul class="card-items">
+          <li>CRUD /data/tables</li>
+          <li>CRUD /data/tables/:id/rows</li>
+          <li>Fields & Mappings</li>
+          <li>CSV Import</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-container">
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ===== AWS SERVICES + OCR SIDE-BY-SIDE ===== -->
+  <div class="split">
+
+    <!-- AWS Services -->
+    <div class="layer aws-services">
+      <div class="layer-label"><span class="dot"></span> AWS Services</div>
+      <div class="cards" style="flex-direction:column;">
+        <div class="card">
+          <div class="card-title">Amazon Cognito</div>
+          <ul class="card-items">
+            <li>User Pool + JWT tokens</li>
+            <li>MFA (TOTP)</li>
+            <li>Password policies</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-title">Amazon S3</div>
+          <ul class="card-items">
+            <li>Document storage bucket</li>
+            <li>Versioning + SSE encryption</li>
+            <li>Presigned URLs</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-title">Amazon SQS</div>
+          <ul class="card-items">
+            <li>OCR job queue</li>
+            <li>Dead Letter Queue (3 retries)</li>
+            <li>Triggers OCR Worker Lambda</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-title">Aurora PostgreSQL</div>
+          <ul class="card-items">
+            <li>Serverless v2 (0.5–4 ACU)</li>
+            <li>Private subnet + SSL</li>
+          </ul>
+          <div class="db-tables" style="margin-top:8px;">
+            <span class="db-table">users</span>
+            <span class="db-table">documents</span>
+            <span class="db-table">data_tables</span>
+            <span class="db-table">data_fields</span>
+            <span class="db-table">data_rows</span>
+            <span class="db-table">data_field_mappings</span>
+            <span class="db-table">processing_jobs</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OCR Pipeline -->
+    <div class="layer ocr-pipeline">
+      <div class="layer-label"><span class="dot"></span> OCR Worker Lambda — Container (Python)</div>
+      <div style="margin-bottom:10px">
+        <span class="tech-badge">lambda_handler.py</span>
+        <span class="tech-badge">textract_ocr.py</span>
+        <span class="tech-badge">Docker / ECR</span>
+      </div>
+      <div class="cards" style="flex-direction:column;">
+        <div class="card">
+          <div class="card-title">Pipeline Steps</div>
+          <ul class="card-items">
+            <li>1. SQS trigger receives job ID</li>
+            <li>2. Fetch job details from DB</li>
+            <li>3. Download document from S3</li>
+            <li>4. Call AWS Textract</li>
+            <li>5. Extract & map fields</li>
+            <li>6. Calculate confidence scores</li>
+            <li>7. Insert rows into target table</li>
+            <li>8. Update job status</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-title">AWS Textract</div>
+          <ul class="card-items">
+            <li>DetectDocumentText</li>
+            <li>AnalyzeDocument</li>
+            <li>Custom Queries</li>
+            <li>Custom Adapters (trained models)</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-title">Field Extraction</div>
+          <ul class="card-items">
+            <li>Explicit field mappings</li>
+            <li>Field name search</li>
+            <li>Regex / semantic patterns</li>
+            <li>Per-field confidence scoring</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== INFRASTRUCTURE ===== -->
+  <div class="layer infra">
+    <div class="layer-label"><span class="dot"></span> Infrastructure & CI/CD</div>
+    <div class="split">
+      <div class="card">
+        <div class="card-title">Terraform IaC</div>
+        <ul class="card-items">
+          <li>VPC (2 AZs, public + private subnets)</li>
+          <li>NAT Gateway</li>
+          <li>IAM Roles & Policies</li>
+          <li>Secrets Manager (DB creds)</li>
+          <li>ECR (OCR worker image)</li>
+          <li>All AWS resources codified</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">GitHub Actions CI/CD</div>
+        <ul class="card-items">
+          <li>deploy-backend → API Lambda + OCR Docker</li>
+          <li>deploy-infrastructure → Terraform apply</li>
+          <li>terraform-plan → PR review</li>
+          <li>Manual trigger workflows</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title">Environments</div>
+        <ul class="card-items">
+          <li><strong>Local:</strong> filesystem, custom auth, Next.js API</li>
+          <li><strong>Staging:</strong> S3, SQS, Cognito, Textract</li>
+          <li><strong>Production:</strong> Full AWS stack</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== DATA FLOW ===== -->
+<div class="flow-section">
+  <div class="flow-title">OCR Processing Data Flow</div>
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-step-title">User Uploads</div>
+      <div class="flow-step-desc">PDF / image / doc → S3</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-title">Queue OCR Job</div>
+      <div class="flow-step-desc">API creates job + SQS msg</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-title">SQS Triggers</div>
+      <div class="flow-step-desc">OCR Worker Lambda</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-title">Textract OCR</div>
+      <div class="flow-step-desc">Detect / Analyze / Query</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-title">Field Mapping</div>
+      <div class="flow-step-desc">Extract + confidence score</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-title">Data Ingested</div>
+      <div class="flow-step-desc">Rows → target table in DB</div>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-title">User Views</div>
+      <div class="flow-step-desc">AG Grid with confidence bars</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,152 @@
+# =============================================================================
+# DocuPop Terraform Variables - Example Configuration
+# =============================================================================
+# Copy this file to terraform.tfvars and update values for your environment.
+# DO NOT commit terraform.tfvars to version control.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Project Configuration
+# -----------------------------------------------------------------------------
+
+project_name = "docupop"
+environment  = "staging"  # or "production"
+
+# -----------------------------------------------------------------------------
+# AWS Configuration
+# -----------------------------------------------------------------------------
+
+aws_region = "us-west-1"
+
+# Availability zones (must be in your selected region)
+availability_zones = ["us-west-1a", "us-west-1b"]
+
+# -----------------------------------------------------------------------------
+# Network Configuration
+# -----------------------------------------------------------------------------
+
+vpc_cidr = "10.0.0.0/16"
+
+# -----------------------------------------------------------------------------
+# Database Configuration
+# -----------------------------------------------------------------------------
+
+# Database instance class
+# For development/staging: "db.serverless" (Aurora Serverless v2)
+# For production with predictable workloads: "db.r6g.large" or higher
+db_instance_class = "db.serverless"
+
+# Aurora Serverless v2 capacity (only applies when db_instance_class = "db.serverless")
+aurora_min_capacity = 0.5   # Minimum ACUs (0.5 to 128)
+aurora_max_capacity = 2.0   # Maximum ACUs (must be >= min_capacity)
+
+# Database name (must be alphanumeric, start with letter)
+db_name = "docupop"
+
+# Master username (must be alphanumeric)
+db_master_username = "docupop_admin"
+
+# -----------------------------------------------------------------------------
+# Lambda Configuration
+# -----------------------------------------------------------------------------
+
+# Python runtime version
+lambda_runtime = "python3.11"
+
+# API Lambda settings
+lambda_api_memory  = 512   # MB (128-10240)
+lambda_api_timeout = 30    # seconds (1-900)
+
+# OCR Worker Lambda settings (needs more memory for Textract processing)
+lambda_ocr_memory  = 1536  # MB (128-10240)
+lambda_ocr_timeout = 300   # seconds (1-900)
+
+# Paths relative to terraform directory
+lambda_api_source_path   = "../../services/api-lambda"
+lambda_ocr_dockerfile_path = "../../services/ocr-worker"
+
+# -----------------------------------------------------------------------------
+# Cognito Configuration
+# -----------------------------------------------------------------------------
+
+# Password policy
+cognito_password_min_length         = 8
+cognito_password_require_lowercase  = true
+cognito_password_require_uppercase  = true
+cognito_password_require_numbers    = true
+cognito_password_require_symbols    = false
+
+# -----------------------------------------------------------------------------
+# S3 Configuration
+# -----------------------------------------------------------------------------
+
+# Days before documents are transitioned to Infrequent Access storage
+s3_document_transition_days = 90
+
+# Days before documents are permanently deleted (0 to disable)
+s3_document_expiration_days = 0
+
+# -----------------------------------------------------------------------------
+# SQS Configuration
+# -----------------------------------------------------------------------------
+
+# Message visibility timeout (should be > Lambda timeout)
+sqs_visibility_timeout = 360  # seconds
+
+# How long messages are retained if not processed
+sqs_message_retention = 1209600  # seconds (14 days)
+
+# Max number of times a message can be received before going to DLQ
+sqs_max_receive_count = 3
+
+# -----------------------------------------------------------------------------
+# CORS Configuration
+# -----------------------------------------------------------------------------
+
+# Allowed origins for API Gateway CORS
+# Use ["*"] for development, specific domains for production
+allowed_origins = [
+  "http://localhost:5173",
+  "http://localhost:3000"
+]
+
+# For production, use your actual domain:
+# allowed_origins = [
+#   "https://docupop.example.com",
+#   "https://www.docupop.example.com"
+# ]
+
+# -----------------------------------------------------------------------------
+# Amplify Configuration (Frontend Hosting)
+# -----------------------------------------------------------------------------
+
+# GitHub repository URL (required for Amplify)
+github_repository_url = "https://github.com/your-username/docupop"
+
+# GitHub personal access token with repo and admin:repo_hook scopes
+# IMPORTANT: Use environment variable instead of hardcoding:
+#   export TF_VAR_github_access_token="ghp_xxxxxxxxxxxx"
+# github_access_token = ""
+
+# Enable automatic branch creation for feature branches
+amplify_auto_branch_creation = false
+
+# Patterns for automatic branch creation
+amplify_auto_branch_patterns = ["feature/*", "fix/*"]
+
+# Enable pull request preview environments
+amplify_enable_pr_preview = false
+
+# Custom domain for Amplify (leave empty to use default amplifyapp.com domain)
+# amplify_domain_name = "docupop.com"
+
+# -----------------------------------------------------------------------------
+# Tags (optional, applied to all resources)
+# -----------------------------------------------------------------------------
+
+# Additional tags to apply to all resources
+# tags = {
+#   Team        = "Engineering"
+#   CostCenter  = "12345"
+#   Application = "DocuPop"
+# }

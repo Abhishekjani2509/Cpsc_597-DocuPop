@@ -1,0 +1,11 @@
+# Lambda OCR Worker Dependencies
+# For AWS Lambda Python 3.11 runtime
+
+# AWS SDK (boto3 is included in Lambda runtime, but specifying for local testing)
+boto3>=1.35.0
+botocore>=1.35.0
+
+# Database
+psycopg2-binary>=2.9.9
+
+# Note: pytesseract, PyMuPDF, Pillow NOT needed for Lambda (uses Textract instead)

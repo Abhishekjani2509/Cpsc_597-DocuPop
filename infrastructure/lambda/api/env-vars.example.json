@@ -1,0 +1,16 @@
+{
+  "Variables": {
+    "PGHOST": "your-rds-cluster.region.rds.amazonaws.com",
+    "PGPORT": "5432",
+    "PGUSER": "your_db_user",
+    "PGPASSWORD": "your_db_password",
+    "PGDATABASE": "postgres",
+    "S3_ENABLED": "true",
+    "S3_BUCKET_NAME": "your-s3-bucket-name",
+    "SQS_ENABLED": "true",
+    "SQS_QUEUE_URL": "https://sqs.region.amazonaws.com/account-id/queue-name",
+    "COGNITO_ENABLED": "true",
+    "COGNITO_USER_POOL_ID": "region_PoolId",
+    "COGNITO_CLIENT_ID": "your-cognito-client-id"
+  }
+}

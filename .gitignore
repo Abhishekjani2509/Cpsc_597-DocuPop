@@ -1,0 +1,118 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+
+# Next.js
+/.next/
+/out/
+
+# Production
+/build
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env files
+.env*.local
+.env
+.env.production
+.env.staging
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.claude/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local data
+local-data/
+server/local-data/
+
+# Lambda build artifacts
+lambda/**/dist/
+lambda/**/*.zip
+infrastructure/lambda/**/dist/
+infrastructure/lambda/**/*.zip
+infrastructure/lambda/**/env-vars.json
+*.pyc
+__pycache__/
+
+# Lambda pip packages (installed with pip install -t .)
+infrastructure/lambda/api/bin/
+infrastructure/lambda/api/boto3/
+infrastructure/lambda/api/boto3-*.dist-info/
+infrastructure/lambda/api/botocore/
+infrastructure/lambda/api/botocore-*.dist-info/
+infrastructure/lambda/api/pg8000/
+infrastructure/lambda/api/pg8000-*.dist-info/
+infrastructure/lambda/api/asn1crypto/
+infrastructure/lambda/api/asn1crypto-*.dist-info/
+infrastructure/lambda/api/dateutil/
+infrastructure/lambda/api/python_dateutil-*.dist-info/
+infrastructure/lambda/api/jmespath/
+infrastructure/lambda/api/jmespath-*.dist-info/
+infrastructure/lambda/api/s3transfer/
+infrastructure/lambda/api/s3transfer-*.dist-info/
+infrastructure/lambda/api/scramp/
+infrastructure/lambda/api/scramp-*.dist-info/
+infrastructure/lambda/api/six*/
+infrastructure/lambda/api/urllib3/
+infrastructure/lambda/api/urllib3-*.dist-info/
+
+# Test/response files
+response*.json
+test-*.json
+*-output.txt
+*-policy.json
+*-env.json
+users-to-delete.json
+deployed-code/
+deployed-lambda.zip
+
+# Build artifacts
+dist/
+dist-temp/
+server/**/*.js
+server/**/*.js.map
+!server/config.js
+api-lambda.zip
+
+# Claude Code
+.claude/
+
+# Documentation (contains sensitive deployment info)
+DEPLOYMENT.md
+ARCHITECTURE.md
+
+# Terraform
+infrastructure/terraform/.terraform/
+infrastructure/terraform/.terraform.lock.hcl
+infrastructure/terraform/*.tfstate
+infrastructure/terraform/*.tfstate.*
+infrastructure/terraform/*.tfvars
+!infrastructure/terraform/terraform.tfvars.example
+infrastructure/terraform/dist/
+infrastructure/terraform/crash.log
+infrastructure/terraform/override.tf
+infrastructure/terraform/override.tf.json
+infrastructure/terraform/*_override.tf
+infrastructure/terraform/*_override.tf.json

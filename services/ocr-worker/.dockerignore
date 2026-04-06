@@ -1,0 +1,38 @@
+# .dockerignore for Lambda OCR Worker
+
+# Environment files (contain local secrets)
+.env
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Local development files
+worker.py
+requirements.txt
+
+# Documentation
+README.md
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test_*.py
+*_test.py
+tests/

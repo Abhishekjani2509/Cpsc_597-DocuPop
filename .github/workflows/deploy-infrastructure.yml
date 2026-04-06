@@ -1,0 +1,243 @@
+name: Deploy Infrastructure (Terraform)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action to perform'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: plan
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      auto_approve:
+        description: 'Auto-approve apply/destroy (skip confirmation)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-west-1
+  TF_VAR_aws_region: us-west-1
+  TERRAFORM_VERSION: '1.6.0'
+
+jobs:
+  terraform:
+    name: Terraform ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    # Set outputs for summary
+    outputs:
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Set environment variables
+        id: env
+        run: |
+          echo "TF_VAR_environment=${{ inputs.environment }}" >> $GITHUB_ENV
+          echo "TF_VAR_project_name=docupop" >> $GITHUB_ENV
+
+          # For production, enable deletion protection
+          if [ "${{ inputs.environment }}" == "production" ]; then
+            echo "TF_VAR_db_deletion_protection=true" >> $GITHUB_ENV
+            echo "TF_VAR_s3_force_destroy=false" >> $GITHUB_ENV
+            echo "TF_VAR_db_skip_final_snapshot=false" >> $GITHUB_ENV
+          else
+            echo "TF_VAR_db_deletion_protection=false" >> $GITHUB_ENV
+            echo "TF_VAR_s3_force_destroy=true" >> $GITHUB_ENV
+            echo "TF_VAR_db_skip_final_snapshot=true" >> $GITHUB_ENV
+          fi
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: |
+          # Initialize with local backend (state stored in repo or configure S3 manually)
+          # To use S3 backend, uncomment the backend block in main.tf and create the bucket first
+          terraform init
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        if: inputs.action == 'plan' || inputs.action == 'apply'
+        run: |
+          terraform plan \
+            -no-color \
+            -out=tfplan \
+            -detailed-exitcode \
+            2>&1 | tee plan_output.txt
+          echo "exitcode=$?" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Upload Plan Artifact
+        if: inputs.action == 'plan' || inputs.action == 'apply'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ inputs.environment }}
+          path: infrastructure/terraform/tfplan
+          retention-days: 7
+
+      - name: Terraform Apply
+        id: apply
+        if: inputs.action == 'apply' && (inputs.auto_approve || github.event_name == 'workflow_dispatch')
+        run: |
+          if [ "${{ inputs.auto_approve }}" == "true" ]; then
+            terraform apply -auto-approve tfplan
+          else
+            echo "::warning::Auto-approve not enabled. Review the plan and re-run with auto_approve=true"
+            exit 1
+          fi
+
+      - name: Terraform Destroy
+        id: destroy
+        if: inputs.action == 'destroy'
+        run: |
+          if [ "${{ inputs.auto_approve }}" == "true" ]; then
+            terraform destroy -auto-approve
+          else
+            echo "::error::Destroy requires auto_approve=true for safety"
+            exit 1
+          fi
+
+      - name: Get Terraform Outputs
+        id: outputs
+        if: inputs.action == 'apply' && success()
+        run: |
+          echo "## Terraform Outputs" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          terraform output -no-color >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "## Infrastructure Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Action** | ${{ inputs.action }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Region** | ${{ env.AWS_REGION }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Auto Approve** | ${{ inputs.auto_approve }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.fmt.outcome }}" != "success" ]; then
+            echo "::warning::Terraform formatting check failed. Run 'terraform fmt -recursive' locally."
+          fi
+
+  # Post-infrastructure deployment - deploy Lambda code
+  deploy-lambdas:
+    name: Deploy Lambda Functions
+    needs: terraform
+    if: inputs.action == 'apply' && success()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set function names
+        id: names
+        run: |
+          if [ "${{ inputs.environment }}" == "production" ]; then
+            echo "API_FUNCTION=docupop-prod-api" >> $GITHUB_OUTPUT
+            echo "OCR_FUNCTION=docupop-prod-ocr-worker" >> $GITHUB_OUTPUT
+            echo "ECR_REPO=docupop-prod-ocr-worker" >> $GITHUB_OUTPUT
+          else
+            echo "API_FUNCTION=docupop-api" >> $GITHUB_OUTPUT
+            echo "OCR_FUNCTION=docupop-ocr-worker" >> $GITHUB_OUTPUT
+            echo "ECR_REPO=docupop-ocr-worker" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy API Lambda
+        run: |
+          cd infrastructure/lambda/api
+          zip -r ../../../api-lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*" -x "*.zip"
+          cd ../../..
+
+          aws lambda update-function-code \
+            --function-name ${{ steps.names.outputs.API_FUNCTION }} \
+            --zip-file fileb://api-lambda.zip \
+            --publish
+
+          aws lambda wait function-updated \
+            --function-name ${{ steps.names.outputs.API_FUNCTION }}
+
+          echo "API Lambda deployed successfully" >> $GITHUB_STEP_SUMMARY
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push OCR Worker
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ steps.names.outputs.ECR_REPO }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd services/ocr-worker
+
+          docker buildx build \
+            --platform linux/amd64 \
+            -f Dockerfile.lambda \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            --provenance=false \
+            --sbom=false \
+            --push \
+            .
+
+          aws lambda update-function-code \
+            --function-name ${{ steps.names.outputs.OCR_FUNCTION }} \
+            --image-uri $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+          aws lambda wait function-updated \
+            --function-name ${{ steps.names.outputs.OCR_FUNCTION }}
+
+          echo "OCR Worker deployed successfully" >> $GITHUB_STEP_SUMMARY

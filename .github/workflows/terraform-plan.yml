@@ -1,0 +1,77 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+    paths:
+      - 'infrastructure/terraform/**'
+      - '.github/workflows/terraform-plan.yml'
+
+env:
+  AWS_REGION: us-west-1
+  TF_WORKING_DIR: infrastructure/terraform
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Post PR Comment
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const output = `## Terraform Plan Results
+
+            | Step | Status |
+            |------|--------|
+            | Format | ${{ steps.fmt.outcome == 'success' && '✅ Passed' || '⚠️ Needs formatting' }} |
+            | Init | ${{ steps.init.outcome == 'success' && '✅ Success' || '❌ Failed' }} |
+            | Validate | ${{ steps.validate.outcome == 'success' && '✅ Valid' || '❌ Invalid' }} |
+
+            > **Note:** Full \`terraform plan\` requires backend configuration and tfvars.
+            > Run locally with \`terraform plan -var-file="terraform.tfvars"\` to see planned changes.
+
+            *Pushed by: @${{ github.actor }}*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });

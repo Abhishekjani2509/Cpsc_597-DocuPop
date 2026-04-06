@@ -1,0 +1,144 @@
+name: Deploy Backend
+
+on:
+  # Only manual trigger - no auto-deploy on push
+  workflow_dispatch:
+    inputs:
+      deploy_api:
+        description: 'Deploy API Lambda'
+        required: false
+        default: true
+        type: boolean
+      deploy_ocr:
+        description: 'Deploy OCR Worker'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  AWS_REGION: us-west-1
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Deploy API Lambda
+  # ---------------------------------------------------------------------------
+  deploy-api-lambda:
+    name: Deploy API Lambda
+    runs-on: ubuntu-latest
+    if: ${{ inputs.deploy_api }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set environment variables
+        id: env
+        run: |
+          echo "ENVIRONMENT=staging" >> $GITHUB_OUTPUT
+          echo "FUNCTION_NAME=docupop-api" >> $GITHUB_OUTPUT
+
+      - name: Package Lambda
+        run: |
+          cd infrastructure/lambda/api
+          zip -r ../../../api-lambda.zip . -x "*.pyc" -x "__pycache__/*" -x "tests/*" -x "*.zip" -x "env-vars.json"
+
+      - name: Deploy to Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ steps.env.outputs.FUNCTION_NAME }} \
+            --zip-file fileb://api-lambda.zip \
+            --publish
+
+      - name: Wait for update
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ steps.env.outputs.FUNCTION_NAME }}
+
+      - name: Deployment summary
+        run: |
+          echo "## API Lambda Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ steps.env.outputs.ENVIRONMENT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Function:** ${{ steps.env.outputs.FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Deploy OCR Worker Lambda
+  # ---------------------------------------------------------------------------
+  deploy-ocr-worker:
+    name: Deploy OCR Worker
+    runs-on: ubuntu-latest
+    if: ${{ inputs.deploy_ocr }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set environment variables
+        id: env
+        run: |
+          echo "ENVIRONMENT=staging" >> $GITHUB_OUTPUT
+          echo "FUNCTION_NAME=docupop-ocr-worker" >> $GITHUB_OUTPUT
+          echo "ECR_REPOSITORY=docupop-ocr-worker" >> $GITHUB_OUTPUT
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ steps.env.outputs.ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          cd services/ocr-worker
+
+          # Build the image
+          docker buildx build \
+            --platform linux/amd64 \
+            -f Dockerfile.lambda \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            --provenance=false \
+            --sbom=false \
+            --load \
+            .
+
+          # Push both tags
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+          echo "IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Update Lambda function
+        run: |
+          aws lambda update-function-code \
+            --function-name ${{ steps.env.outputs.FUNCTION_NAME }} \
+            --image-uri ${{ steps.build.outputs.IMAGE_URI }}
+
+      - name: Wait for update
+        run: |
+          aws lambda wait function-updated \
+            --function-name ${{ steps.env.outputs.FUNCTION_NAME }}
+
+      - name: Deployment summary
+        run: |
+          echo "## OCR Worker Deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment:** ${{ steps.env.outputs.ENVIRONMENT }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Function:** ${{ steps.env.outputs.FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image:** ${{ steps.build.outputs.IMAGE_URI }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY

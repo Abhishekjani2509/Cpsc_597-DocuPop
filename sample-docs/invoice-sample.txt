@@ -1,0 +1,29 @@
+INVOICE #INV-2026-0042
+Date: March 30, 2026
+
+FROM:
+DocuPop Solutions Inc.
+123 Technology Drive
+Fullerton, CA 92831
+
+BILL TO:
+CSUF Computer Science Department
+800 N State College Blvd
+Fullerton, CA 92831
+
+DESCRIPTION                          QTY     UNIT PRICE     TOTAL
+-------------------------------------------------------------------
+Cloud Infrastructure Setup            1       $2,500.00     $2,500.00
+AWS Lambda Development (hours)       40          $75.00     $3,000.00
+Database Configuration                1         $500.00       $500.00
+Frontend Deployment                   1         $800.00       $800.00
+
+-------------------------------------------------------------------
+                                    SUBTOTAL              $6,800.00
+                                    TAX (8.75%)             $595.00
+                                    TOTAL                 $7,395.00
+
+Payment Terms: Net 30
+Due Date: April 29, 2026
+
+Thank you for your business!

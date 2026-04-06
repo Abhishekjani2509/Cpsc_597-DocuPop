@@ -1,0 +1,27 @@
+# Lambda Container Image for OCR Worker
+# Uses AWS Textract for document processing
+
+# Use AWS Lambda Python 3.11 base image
+FROM public.ecr.aws/lambda/python:3.11
+
+# Set working directory
+WORKDIR ${LAMBDA_TASK_ROOT}
+
+# Copy requirements and install dependencies
+COPY requirements-lambda.txt .
+RUN pip install --no-cache-dir -r requirements-lambda.txt
+
+# Copy application code
+COPY textract_ocr.py .
+COPY lambda_handler.py .
+
+# Set the Lambda handler
+CMD ["lambda_handler.lambda_handler"]
+
+# Health check (optional, for testing)
+HEALTHCHECK NONE
+
+# Metadata
+LABEL maintainer="DocuPop"
+LABEL description="OCR Worker using AWS Textract"
+LABEL version="1.0"
