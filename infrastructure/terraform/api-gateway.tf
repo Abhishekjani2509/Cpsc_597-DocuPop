@@ -121,7 +121,7 @@ resource "aws_api_gateway_integration_response" "proxy_options" {
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers"     = "'Content-Type,Authorization,x-api-key,X-API-Key'"
     "method.response.header.Access-Control-Allow-Methods"     = "'GET,POST,PUT,PATCH,DELETE,OPTIONS'"
-    "method.response.header.Access-Control-Allow-Origin"      = "'https://main.d3sas23nez5kf4.amplifyapp.com'"
+    "method.response.header.Access-Control-Allow-Origin"      = "'https://main.dlk8ycsu0vtzy.amplifyapp.com'"
     "method.response.header.Access-Control-Allow-Credentials" = "'true'"
     "method.response.header.Access-Control-Max-Age"           = "'86400'"
   }

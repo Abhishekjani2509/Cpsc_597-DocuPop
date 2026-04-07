@@ -1,0 +1,10 @@
+EmployeeID,FirstName,LastName,Department,JobTitle,Salary,StartDate,Email,Phone,Status
+E001,John,Smith,Engineering,Software Engineer,95000,2022-03-15,john.smith@company.com,555-101-2001,Active
+E002,Sarah,Johnson,Marketing,Marketing Manager,85000,2021-07-01,sarah.johnson@company.com,555-101-2002,Active
+E003,Michael,Brown,Finance,Financial Analyst,78000,2023-01-10,michael.brown@company.com,555-101-2003,Active
+E004,Emily,Davis,Engineering,Senior Engineer,115000,2020-05-20,emily.davis@company.com,555-101-2004,Active
+E005,James,Wilson,HR,HR Specialist,72000,2022-11-01,james.wilson@company.com,555-101-2005,Active
+E006,Jessica,Martinez,Sales,Account Executive,68000,2023-06-15,jessica.martinez@company.com,555-101-2006,Active
+E007,Ashley,Anderson,Finance,Senior Accountant,88000,2019-04-10,ashley.anderson@company.com,555-101-2007,Active
+E008,Robert,Thomas,Marketing,Content Strategist,65000,2023-02-20,robert.thomas@company.com,555-101-2008,Active
+E009,Amanda,Jackson,Sales,Sales Manager,92000,2020-08-15,amanda.jackson@company.com,555-101-2009,Active

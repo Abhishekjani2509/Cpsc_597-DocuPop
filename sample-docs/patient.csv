@@ -1,0 +1,9 @@
+PatientID,FirstName,LastName,DateOfBirth,Gender,Phone,Email,Address,InsuranceProvider,InsuranceID,PrimaryCondition,Physician,AdmissionDate,Status
+P001,James,Carter,1985-04-12,Male,555-201-0001,james.carter@email.com,123 Oak St Fullerton CA,BlueCross,BC-10023,Hypertension,Dr. Patel,2026-01-10,Discharged
+P002,Maria,Gonzalez,1990-08-25,Female,555-201-0002,maria.gonzalez@email.com,456 Elm Ave Anaheim CA,Aetna,AE-20045,Diabetes Type 2,Dr. Lee,2026-01-15,Active
+P003,Robert,Kim,1978-11-03,Male,555-201-0003,robert.kim@email.com,789 Pine Rd Brea CA,UnitedHealth,UH-30067,Asthma,Dr. Patel,2026-01-22,Active
+P004,Linda,Thompson,1965-02-18,Female,555-201-0004,linda.thompson@email.com,321 Maple Dr Orange CA,Cigna,CI-40089,Arthritis,Dr. Chen,2026-02-05,Discharged
+P005,Kevin,Park,1992-05-10,Male,555-201-0005,kevin.park@email.com,654 Cedar Blvd Placentia CA,BlueCross,BC-50012,Anxiety,Dr. Lee,2026-02-14,Active
+P006,Jennifer,White,1982-09-14,Female,555-201-0006,jennifer.white@email.com,987 Birch St Yorba Linda CA,Aetna,AE-60034,Migraine,Dr. Chen,2026-02-28,Active
+P007,Marcus,Davis,1970-05-22,Male,555-201-0007,marcus.davis@email.com,147 Walnut Ave Tustin CA,UnitedHealth,UH-70056,Back Pain,Dr. Patel,2026-03-08,Discharged
+P008,Rachel,Wilson,1988-12-09,Female,555-201-0008,rachel.wilson@email.com,258 Spruce Rd Irvine CA,Cigna,CI-80078,Depression,Dr. Lee,2026-03-20,Active

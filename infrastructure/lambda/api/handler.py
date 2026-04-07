@@ -28,8 +28,8 @@ def create_cors_response(status_code, body, origin=None, headers=None):
     except json.JSONDecodeError:
         allowed_origins = []
     defaults = [
-        'https://main.d3sas23nez5kf4.amplifyapp.com',
-        'https://d3sas23nez5kf4.amplifyapp.com',
+        'https://main.dlk8ycsu0vtzy.amplifyapp.com',
+        'https://dlk8ycsu0vtzy.amplifyapp.com',
         'http://localhost:3000',
     ]
     for d in defaults:
@@ -40,7 +40,7 @@ def create_cors_response(status_code, body, origin=None, headers=None):
     if origin and origin in allowed_origins:
         allow_origin = origin
     else:
-        allow_origin = 'https://main.d3sas23nez5kf4.amplifyapp.com'
+        allow_origin = 'https://main.dlk8ycsu0vtzy.amplifyapp.com'
 
     cors_headers = {
         'Content-Type': 'application/json',
@@ -1685,8 +1685,11 @@ def handle_queue_processing_jobs(event, context):
     """Queue OCR processing jobs to SQS for Textract processing"""
     try:
         user = get_current_user(event)
-        data = json.loads(event.get("body", "{}"))
+        raw_body = event.get("body", "{}")
+        print(f"[DEBUG] Queue jobs body: {raw_body}")
+        data = json.loads(raw_body) if raw_body else {}
         document_ids = data.get("documentIds", [])
+        print(f"[DEBUG] document_ids={document_ids}, SQS_ENABLED={os.environ.get('SQS_ENABLED')}, SQS_URL={os.environ.get('SQS_QUEUE_URL')}")
         engine = data.get("engine", "textract")  # Default to textract
         target_table_id = data.get("targetTableId")
         # Optional: Custom Textract queries for targeted field extraction
@@ -1778,10 +1781,14 @@ def handle_queue_processing_jobs(event, context):
                         send_params['MessageGroupId'] = user["sub"]
                         send_params['MessageDeduplicationId'] = job_id
 
-                    sqs_client.send_message(**send_params)
+                    print(f"[DEBUG] Calling sqs_client.send_message for job {job_id}")
+                    response = sqs_client.send_message(**send_params)
+                    print(f"[DEBUG] SQS send response: {response.get('MessageId', 'no-id')}")
                     print(f"Queued job {job_id} to SQS for document {filename}")
                 except Exception as sqs_error:
-                    print(f"Failed to send SQS message for job {job_id}: {sqs_error}")
+                    import traceback
+                    print(f"[ERROR] Failed to send SQS message for job {job_id}: {sqs_error}")
+                    print(f"[ERROR] Traceback: {traceback.format_exc()}")
                     # Job is still in DB as pending, could be retried manually
 
             jobs.append({
