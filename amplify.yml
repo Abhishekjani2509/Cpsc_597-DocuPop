@@ -8,7 +8,6 @@ frontend:
       commands:
         - npm run build
         - cp -r .next/static .next/standalone/.next/static
-        - cp -r public .next/standalone/public
   artifacts:
     baseDirectory: .next/standalone
     files:
