@@ -28,8 +28,8 @@ def create_cors_response(status_code, body, origin=None, headers=None):
     except json.JSONDecodeError:
         allowed_origins = []
     defaults = [
-        'https://main.d3wh964c7o7j1.amplifyapp.com',
-        'https://d3wh964c7o7j1.amplifyapp.com',
+        'https://main.d27qkd1lq7ipyw.amplifyapp.com',
+        'https://d27qkd1lq7ipyw.amplifyapp.com',
         'http://localhost:3000',
     ]
     for d in defaults:
@@ -40,7 +40,7 @@ def create_cors_response(status_code, body, origin=None, headers=None):
     if origin and origin in allowed_origins:
         allow_origin = origin
     else:
-        allow_origin = 'https://main.d3wh964c7o7j1.amplifyapp.com'
+        allow_origin = 'https://main.d27qkd1lq7ipyw.amplifyapp.com'
 
     cors_headers = {
         'Content-Type': 'application/json',
