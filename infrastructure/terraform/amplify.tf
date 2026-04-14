@@ -11,7 +11,7 @@ resource "aws_amplify_app" "frontend" {
 
   name       = "${local.name_prefix}-frontend"
   repository = var.github_repository_url
-  platform   = "WEB_COMPUTE"
+  platform   = "WEB"
 
   # OAuth token for GitHub access (stored in variables, not hardcoded)
   access_token = var.github_access_token
@@ -35,6 +35,10 @@ resource "aws_amplify_app" "frontend" {
     enable_pull_request_preview = var.amplify_enable_pr_preview
   }
 
+  lifecycle {
+    ignore_changes = [access_token]
+  }
+
   tags = {
     Name = "${local.name_prefix}-frontend"
   }
@@ -56,7 +60,7 @@ resource "aws_amplify_branch" "main" {
   enable_auto_build = true
 
   # Framework detection
-  framework = "Next.js - SSR"
+  framework = "Next.js"
 
   # Stage designation
   stage = "PRODUCTION"
