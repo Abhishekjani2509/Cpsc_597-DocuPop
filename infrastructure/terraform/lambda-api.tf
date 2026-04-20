@@ -69,6 +69,7 @@ resource "aws_lambda_function" "api" {
       COGNITO_CLIENT_ID    = aws_cognito_user_pool_client.main.id
       DATABASE_SECRET_ARN  = aws_secretsmanager_secret.db_credentials.arn
       ALLOWED_ORIGINS      = jsonencode(var.allowed_origins)
+      SQS_ENABLED          = "true"
     }
   }
 

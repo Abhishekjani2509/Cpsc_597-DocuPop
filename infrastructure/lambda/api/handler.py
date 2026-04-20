@@ -27,20 +27,16 @@ def create_cors_response(status_code, body, origin=None, headers=None):
         allowed_origins = json.loads(env_origins)
     except json.JSONDecodeError:
         allowed_origins = []
-    defaults = [
-        'https://main.d27qkd1lq7ipyw.amplifyapp.com',
-        'https://d27qkd1lq7ipyw.amplifyapp.com',
-        'http://localhost:3000',
-    ]
-    for d in defaults:
-        if d not in allowed_origins:
-            allowed_origins.append(d)
+    if 'http://localhost:3000' not in allowed_origins:
+        allowed_origins.append('http://localhost:3000')
 
-    # Use the request origin if allowed, otherwise default to Amplify URL
-    if origin and origin in allowed_origins:
+    # Use the request origin if allowed (or if wildcard), otherwise fallback to localhost
+    if '*' in allowed_origins:
+        allow_origin = origin if origin else 'http://localhost:3000'
+    elif origin and origin in allowed_origins:
         allow_origin = origin
     else:
-        allow_origin = 'https://main.d27qkd1lq7ipyw.amplifyapp.com'
+        allow_origin = allowed_origins[0] if allowed_origins else 'http://localhost:3000'
 
     cors_headers = {
         'Content-Type': 'application/json',
