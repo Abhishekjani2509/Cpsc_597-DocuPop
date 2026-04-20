@@ -7,6 +7,8 @@ frontend:
     build:
       commands:
         - npm run build
+        - ls -la out/ || echo "OUT DIR NOT FOUND"
+        - ls -la out/index.html || echo "INDEX.HTML NOT FOUND"
   artifacts:
     baseDirectory: out
     files:
