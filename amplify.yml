@@ -7,10 +7,10 @@ frontend:
     build:
       commands:
         - npm run build
-        - ls -la out/ || echo "OUT DIR NOT FOUND"
-        - ls -la out/index.html || echo "INDEX.HTML NOT FOUND"
+        - mkdir -p deploy && cp -r out/. deploy/
+        - ls -la deploy/index.html
   artifacts:
-    baseDirectory: out
+    baseDirectory: deploy
     files:
       - '**/*'
   cache:
