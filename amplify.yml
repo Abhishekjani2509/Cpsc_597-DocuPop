@@ -8,7 +8,6 @@ frontend:
       commands:
         - npm run build
         - mkdir -p deploy && cp -r out/. deploy/
-        - ls -la deploy/index.html
   artifacts:
     baseDirectory: deploy
     files:
