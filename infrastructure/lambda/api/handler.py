@@ -259,8 +259,9 @@ def ensure_user_in_db(user_data):
         cur = conn.cursor()
 
         # Check if user exists
-        cur.execute("SELECT id FROM users WHERE id = %s", (user_data['sub'],))
-        if not cur.fetchone():
+        cur.execute("SELECT id, email, name FROM users WHERE id = %s", (user_data['sub'],))
+        existing = cur.fetchone()
+        if not existing:
             email = user_data.get('email')
             name = user_data.get('name', 'User')
 
@@ -284,7 +285,21 @@ def ensure_user_in_db(user_data):
             conn.commit()
             print(f"User created successfully: {user_data['sub']}")
         else:
-            print(f"User already exists: {user_data['sub']}")
+            existing_email = existing[1]
+            # If stored email is a placeholder, try to update with real email from Cognito
+            if existing_email and existing_email.endswith('@docupop.local'):
+                cognito_user = get_user_from_cognito(user_data['sub'])
+                if cognito_user and cognito_user.get('email') and not cognito_user['email'].endswith('@docupop.local'):
+                    new_email = cognito_user['email']
+                    new_name = cognito_user.get('name') or existing[2]
+                    cur.execute(
+                        "UPDATE users SET email = %s, name = %s WHERE id = %s",
+                        (new_email, new_name, user_data['sub'])
+                    )
+                    conn.commit()
+                    print(f"Updated user email from placeholder to: {new_email}")
+            else:
+                print(f"User already exists: {user_data['sub']}")
 
         cur.close()
         conn.close()
@@ -302,8 +317,22 @@ def get_current_user(event):
     token = auth_header.split("Bearer ")[1]
     user_data = verify_cognito_token(token)
 
-    # Ensure user exists in database
+    # Ensure user exists in database (and fix placeholder emails)
     ensure_user_in_db(user_data)
+
+    # Return DB record so real email/name are shown (not token-decoded placeholders)
+    try:
+        conn = get_database_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, email, name FROM users WHERE id = %s", (user_data['sub'],))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row:
+            user_data['email'] = row[1]
+            user_data['name'] = row[2]
+    except Exception as e:
+        print(f"WARNING: Could not fetch user from DB: {e}")
 
     return user_data
 
