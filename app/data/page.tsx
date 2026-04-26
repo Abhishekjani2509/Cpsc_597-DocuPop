@@ -1128,10 +1128,6 @@ export default function DataPage() {
                   <AlertCircle className="h-3.5 w-3.5" />
                   {rows.filter(r => rowNeedsReview(r) && !approvedIds.has(r.id)).length} need review
                 </span>
-                <span className="flex items-center gap-1 text-green-600">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {rows.filter(r => approvedIds.has(r.id)).length} approved
-                </span>
               </div>
             )}
 
