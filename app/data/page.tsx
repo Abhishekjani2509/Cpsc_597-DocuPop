@@ -145,7 +145,7 @@ function DocumentCard({
         ) : (
           <>
             <Button size="sm" variant="outline" onClick={() => onStartEdit(row)} className="h-7 text-xs"><Pencil className="h-3 w-3 mr-1" />Edit</Button>
-            {!isApproved && <Button size="sm" onClick={() => onApprove(row.id)} className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"><CheckCircle2 className="h-3 w-3 mr-1" />Approve</Button>}
+            {rowNeedsReview(row) && !isApproved && <Button size="sm" onClick={() => onApprove(row.id)} className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"><CheckCircle2 className="h-3 w-3 mr-1" />Approve</Button>}
           </>
         )}
       </div>
@@ -1130,7 +1130,7 @@ export default function DataPage() {
                 </span>
                 <span className="flex items-center gap-1 text-green-600">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  {approvedIds.size} approved
+                  {rows.filter(r => approvedIds.has(r.id)).length} approved
                 </span>
               </div>
             )}
