@@ -157,6 +157,24 @@ resource "aws_security_group" "lambda" {
   description = "Security group for Lambda functions"
   vpc_id      = aws_vpc.main.id
 
+  # Inbound: HTTPS from self (VPC endpoint ENIs share this SG — required for SQS/SecretsManager)
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    self        = true
+    description = "HTTPS from self for VPC endpoint access"
+  }
+
+  # Inbound: HTTPS from VPC CIDR (covers all Lambda ENIs in private subnets)
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+    description = "HTTPS from VPC CIDR for VPC endpoint access"
+  }
+
   # Outbound: Allow all (needed for AWS services, internet)
   egress {
     from_port   = 0

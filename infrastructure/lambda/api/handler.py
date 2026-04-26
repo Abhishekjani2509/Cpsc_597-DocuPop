@@ -1711,10 +1711,8 @@ def handle_queue_processing_jobs(event, context):
     try:
         user = get_current_user(event)
         raw_body = event.get("body", "{}")
-        print(f"[DEBUG] Queue jobs body: {raw_body}")
         data = json.loads(raw_body) if raw_body else {}
         document_ids = data.get("documentIds", [])
-        print(f"[DEBUG] document_ids={document_ids}, SQS_ENABLED={os.environ.get('SQS_ENABLED')}, SQS_URL={os.environ.get('SQS_QUEUE_URL')}")
         engine = data.get("engine", "textract")  # Default to textract
         target_table_id = data.get("targetTableId")
         # Optional: Custom Textract queries for targeted field extraction
@@ -1806,9 +1804,7 @@ def handle_queue_processing_jobs(event, context):
                         send_params['MessageGroupId'] = user["sub"]
                         send_params['MessageDeduplicationId'] = job_id
 
-                    print(f"[DEBUG] Calling sqs_client.send_message for job {job_id}")
                     response = sqs_client.send_message(**send_params)
-                    print(f"[DEBUG] SQS send response: {response.get('MessageId', 'no-id')}")
                     print(f"Queued job {job_id} to SQS for document {filename}")
                 except Exception as sqs_error:
                     import traceback
