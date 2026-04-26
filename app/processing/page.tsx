@@ -392,9 +392,11 @@ export default function ProcessingPage() {
                         } else {
                           setAdapterVersion("");
                         }
-                        // Auto-populate default queries if adapter has them and user hasn't added any
-                        if (selectedAdapter?.defaultQueries?.length && queries.length === 0) {
+                        // Always auto-populate default queries when adapter is selected
+                        if (selectedAdapter?.defaultQueries?.length) {
                           setQueries(selectedAdapter.defaultQueries.map(q => ({ text: q.alias, alias: q.alias })));
+                        } else if (!newAdapterId) {
+                          setQueries([]);
                         }
                       }}
                     >
