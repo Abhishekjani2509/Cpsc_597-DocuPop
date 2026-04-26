@@ -19,8 +19,139 @@ import { AgGridReact } from "ag-grid-react";
 import { ColDef, SelectionChangedEvent, CellValueChangedEvent, CheckboxSelectionCallbackParams, ModuleRegistry, AllCommunityModule } from "ag-grid-community";
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-alpine.css";
-import { Download, Filter, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
+import { Download, Filter, ZoomIn, ZoomOut, Maximize2, LayoutGrid, Table2, ClipboardCheck, User, FileText, Heart, CheckCircle2, AlertCircle, Pencil, X, Check } from "lucide-react";
+// LayoutGrid = cards view icon, Table2 = table view icon, ClipboardCheck = review icon
 import { toast } from "@/components/ui/toast";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+type ViewMode = "table" | "cards" | "review";
+type CardType = "employee" | "invoice" | "patient" | "generic";
+
+function detectCardType(tableName: string): CardType {
+  const n = tableName.toLowerCase();
+  if (n.includes("emp")) return "employee";
+  if (n.includes("inv")) return "invoice";
+  if (n.includes("pat")) return "patient";
+  return "generic";
+}
+
+const CARD_THEME: Record<CardType, { accent: string; light: string; icon: React.ReactNode; label: string }> = {
+  employee: { accent: "border-blue-400",  light: "bg-blue-50",   icon: <User className="h-5 w-5 text-blue-500" />,   label: "Employee Record" },
+  invoice:  { accent: "border-green-400", light: "bg-green-50",  icon: <FileText className="h-5 w-5 text-green-500" />, label: "Invoice" },
+  patient:  { accent: "border-purple-400",light: "bg-purple-50", icon: <Heart className="h-5 w-5 text-purple-500" />, label: "Patient Record" },
+  generic:  { accent: "border-gray-300",  light: "bg-gray-50",   icon: <FileText className="h-5 w-5 text-gray-400" />, label: "Document" },
+};
+
+function ConfidenceDot({ value }: { value: number | null }) {
+  if (value === null) return <span className="w-2 h-2 rounded-full bg-gray-200 inline-block" />;
+  if (value >= 0.9) return <span className="w-2 h-2 rounded-full bg-green-500 inline-block" title={`${(value*100).toFixed(0)}%`} />;
+  if (value >= 0.7) return <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" title={`${(value*100).toFixed(0)}%`} />;
+  return <span className="w-2 h-2 rounded-full bg-red-500 inline-block" title={`${(value*100).toFixed(0)}%`} />;
+}
+
+function confidenceColor(v: number | null) {
+  if (v === null) return "text-gray-500";
+  if (v >= 0.9) return "text-green-600";
+  if (v >= 0.7) return "text-amber-500";
+  return "text-red-500";
+}
+
+function rowNeedsReview(row: DataRow): boolean {
+  return Object.values(row.data).some(cell => {
+    if (cell && typeof cell === "object" && "confidence" in cell) {
+      return typeof cell.confidence === "number" && cell.confidence < 0.8;
+    }
+    return false;
+  });
+}
+
+function getDocName(row: DataRow): string {
+  const cell = row.data[DOCUMENT_NAME_FIELD];
+  if (!cell) return "Untitled";
+  if (typeof cell === "object" && "value" in cell) return String(cell.value || "Untitled");
+  return String(cell || "Untitled");
+}
+
+// ── Document Card ─────────────────────────────────────────────────────────────
+function DocumentCard({
+  row, table, cardType, isApproved, editingId, editValues,
+  onApprove, onStartEdit, onSaveEdit, onCancelEdit, onEditChange,
+}: {
+  row: DataRow; table: DataTable; cardType: CardType; isApproved: boolean;
+  editingId: string | null; editValues: Record<string, string>;
+  onApprove: (id: string) => void; onStartEdit: (row: DataRow) => void;
+  onSaveEdit: (id: string) => void; onCancelEdit: () => void;
+  onEditChange: (field: string, val: string) => void;
+}) {
+  const theme = CARD_THEME[cardType];
+  const isEditing = editingId === row.id;
+  const docName = getDocName(row);
+  const fields = table.fields.filter(f => f.name !== DOCUMENT_NAME_FIELD);
+  const hasLowConf = rowNeedsReview(row) && !isApproved;
+
+  return (
+    <div className={`rounded-xl border-2 ${hasLowConf ? "border-amber-300" : isApproved ? "border-green-300" : theme.accent} bg-white shadow-sm hover:shadow-md transition-shadow`}>
+      {/* Card header */}
+      <div className={`flex items-center justify-between px-4 py-3 rounded-t-xl ${theme.light} border-b`}>
+        <div className="flex items-center gap-2">
+          {theme.icon}
+          <div>
+            <p className="text-xs font-medium text-gray-500">{theme.label}</p>
+            <p className="text-sm font-semibold text-gray-800 truncate max-w-[180px]">{docName}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {isApproved && <span className="flex items-center gap-1 text-xs text-green-600 font-medium"><CheckCircle2 className="h-3.5 w-3.5" />Approved</span>}
+          {hasLowConf && <span className="flex items-center gap-1 text-xs text-amber-600 font-medium"><AlertCircle className="h-3.5 w-3.5" />Needs Review</span>}
+        </div>
+      </div>
+
+      {/* Fields */}
+      <div className="px-4 py-3 grid grid-cols-1 gap-1.5">
+        {fields.map(f => {
+          const cell = row.data[f.name];
+          const val = cell && typeof cell === "object" && "value" in cell ? String(cell.value ?? "") : String(cell ?? "");
+          const conf = cell && typeof cell === "object" && "confidence" in cell ? cell.confidence as number | null : null;
+          const isLow = conf !== null && conf < 0.8;
+
+          return (
+            <div key={f.name} className={`flex items-center justify-between py-1 px-2 rounded ${isLow && !isApproved ? "bg-red-50" : "hover:bg-gray-50"}`}>
+              <span className="text-xs font-medium text-gray-500 w-32 shrink-0">{f.name}</span>
+              {isEditing ? (
+                <input
+                  className="flex-1 text-xs border border-blue-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  value={editValues[f.name] ?? val}
+                  onChange={e => onEditChange(f.name, e.target.value)}
+                />
+              ) : (
+                <span className={`flex-1 text-xs font-medium truncate ${isLow && !isApproved ? "text-red-700" : "text-gray-800"}`}>{val || <span className="text-gray-300 italic">—</span>}</span>
+              )}
+              <div className="flex items-center gap-1.5 ml-2">
+                {conf !== null && <span className={`text-xs ${confidenceColor(conf)}`}>{(conf*100).toFixed(0)}%</span>}
+                <ConfidenceDot value={conf} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-2 px-4 py-2 border-t bg-gray-50 rounded-b-xl">
+        {isEditing ? (
+          <>
+            <Button size="sm" variant="outline" onClick={onCancelEdit} className="h-7 text-xs"><X className="h-3 w-3 mr-1" />Cancel</Button>
+            <Button size="sm" onClick={() => onSaveEdit(row.id)} className="h-7 text-xs"><Check className="h-3 w-3 mr-1" />Save</Button>
+          </>
+        ) : (
+          <>
+            <Button size="sm" variant="outline" onClick={() => onStartEdit(row)} className="h-7 text-xs"><Pencil className="h-3 w-3 mr-1" />Edit</Button>
+            {!isApproved && <Button size="sm" onClick={() => onApprove(row.id)} className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white"><CheckCircle2 className="h-3 w-3 mr-1" />Approve</Button>}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // Register AG Grid modules
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -52,6 +183,45 @@ export default function DataPage() {
   const [showConfidenceColumns, setShowConfidenceColumns] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(100);
   const gridRef = useRef<AgGridReact>(null);
+
+  // Cards / Review view state
+  const [viewMode, setViewMode] = useState<"table" | "cards" | "review">("table");
+  const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Record<string, string>>({});
+
+  const handleApprove = (id: string) => setApprovedIds(prev => new Set([...prev, id]));
+  const handleStartEdit = (row: DataRow) => {
+    const vals: Record<string, string> = {};
+    if (selectedTable) {
+      selectedTable.fields.filter(f => f.name !== DOCUMENT_NAME_FIELD).forEach(f => {
+        const cell = row.data[f.name];
+        vals[f.name] = cell && typeof cell === "object" && "value" in cell ? String(cell.value ?? "") : String(cell ?? "");
+      });
+    }
+    setEditValues(vals);
+    setEditingId(row.id);
+  };
+  const handleSaveEdit = async (id: string) => {
+    if (!selectedTable) return;
+    const row = rows.find(r => r.id === id);
+    if (!row) return;
+    const payload: Record<string, any> = {};
+    selectedTable.fields.forEach(f => {
+      const cell = row.data[f.name];
+      const origConf = cell && typeof cell === "object" && "confidence" in cell ? (cell as any).confidence : null;
+      payload[f.name] = { value: editValues[f.name] ?? (cell && typeof cell === "object" && "value" in cell ? cell.value : cell) ?? "", confidence: origConf };
+    });
+    try {
+      await apiService.updateDataRow(selectedTable.id, id, payload);
+      await loadRows(selectedTable.id);
+      setApprovedIds(prev => new Set([...prev, id]));
+    } catch { toast.error("Unable to save"); }
+    setEditingId(null);
+    setEditValues({});
+  };
+  const handleCancelEdit = () => { setEditingId(null); setEditValues({}); };
+  const handleEditChange = (field: string, val: string) => setEditValues(prev => ({ ...prev, [field]: val }));
 
   const loadRows = useCallback(
     async (tableId: string) => {
@@ -868,129 +1038,240 @@ export default function DataPage() {
           </Card>
 
           <Card className="p-6 space-y-4">
-            <div className="flex items-center justify-between">
+            {/* Header row */}
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="text-xl font-semibold text-gray-800">{selectedTable.name} Rows</h2>
                 <p className="text-sm text-gray-500">{rows.length} total rows</p>
               </div>
-              <div className="flex gap-2">
-                <div className="flex items-center gap-1 border rounded-md px-2">
-                  <Button variant="ghost" size="sm" onClick={handleZoomOut} title="Zoom Out (10%)">
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                  <span className="text-xs font-medium text-gray-600 min-w-[3rem] text-center">{zoomLevel}%</span>
-                  <Button variant="ghost" size="sm" onClick={handleZoomIn} title="Zoom In (10%)">
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Button variant="outline" size="sm" onClick={handleFitAllColumns} title="Fit all columns in view">
-                  <Maximize2 className="h-4 w-4 mr-2" />
-                  Fit All
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleResetZoom} title="Reset to 100%">
-                  100%
-                </Button>
-                <Button
-                  variant={showConfidenceColumns ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setShowConfidenceColumns(!showConfidenceColumns)}
+
+              {/* View toggle */}
+              <div className="flex items-center rounded-lg border bg-gray-50 p-1 gap-1">
+                <button
+                  onClick={() => setViewMode("table")}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "table" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
                 >
-                  <Filter className="h-4 w-4 mr-2" />
-                  {showConfidenceColumns ? "Hide" : "Show"} Confidence
-                </Button>
-                <Button variant="outline" size="sm" onClick={handleExportCsv}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Export CSV
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => loadRows(selectedTable.id)}>
-                  Refresh
-                </Button>
-                <Button size="sm" onClick={beginNewRow}>
-                  Add Row
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleDeleteRows}
-                  disabled={selectedRowIds.length === 0}
+                  <Table2 className="h-4 w-4" />Table
+                </button>
+                <button
+                  onClick={() => setViewMode("cards")}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "cards" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
                 >
-                  Delete Selected
-                </Button>
+                  <LayoutGrid className="h-4 w-4" />Cards
+                </button>
+                <button
+                  onClick={() => setViewMode("review")}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${viewMode === "review" ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-700"}`}
+                >
+                  <ClipboardCheck className="h-4 w-4" />Review
+                  {rows.filter(r => rowNeedsReview(r) && !approvedIds.has(r.id)).length > 0 && (
+                    <span className="ml-1 rounded-full bg-amber-500 text-white text-xs px-1.5 py-0.5 leading-none">
+                      {rows.filter(r => rowNeedsReview(r) && !approvedIds.has(r.id)).length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-2 flex-wrap">
+                {viewMode === "table" && (
+                  <>
+                    <div className="flex items-center gap-1 border rounded-md px-2">
+                      <Button variant="ghost" size="sm" onClick={handleZoomOut} title="Zoom Out"><ZoomOut className="h-4 w-4" /></Button>
+                      <span className="text-xs font-medium text-gray-600 min-w-[3rem] text-center">{zoomLevel}%</span>
+                      <Button variant="ghost" size="sm" onClick={handleZoomIn} title="Zoom In"><ZoomIn className="h-4 w-4" /></Button>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={handleFitAllColumns}><Maximize2 className="h-4 w-4 mr-2" />Fit All</Button>
+                    <Button variant="outline" size="sm" onClick={handleResetZoom}>100%</Button>
+                    <Button variant={showConfidenceColumns ? "default" : "outline"} size="sm" onClick={() => setShowConfidenceColumns(!showConfidenceColumns)}>
+                      <Filter className="h-4 w-4 mr-2" />{showConfidenceColumns ? "Hide" : "Show"} Confidence
+                    </Button>
+                  </>
+                )}
+                <Button variant="outline" size="sm" onClick={handleExportCsv}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
+                <Button variant="outline" size="sm" onClick={() => loadRows(selectedTable.id)}>Refresh</Button>
+                {viewMode === "table" && (
+                  <>
+                    <Button size="sm" onClick={beginNewRow}>Add Row</Button>
+                    <Button size="sm" variant="outline" onClick={handleDeleteRows} disabled={selectedRowIds.length === 0}>Delete Selected</Button>
+                  </>
+                )}
               </div>
             </div>
-            <Input
-              placeholder="Quick search all columns..."
-              value={quickFilter}
-              onChange={(e) => setQuickFilter(e.target.value)}
-              className="max-w-md"
-            />
-            {!selectedTable || columnDefs.length === 0 ? (
-              <p className="text-sm text-gray-500">No rows yet.</p>
-            ) : (
-              <div className="overflow-auto rounded border" key={selectedTable.id}>
-                <div
-                  className="ag-theme-alpine"
-                  style={{
-                    width: "100%",
-                    height: gridHeight,
-                    zoom: `${zoomLevel}%`,
-                    transition: 'zoom 0.2s ease'
-                  }}
-                >
-                  <AgGridReact
-                    key={selectedTable.id}
-                    ref={gridRef}
-                    theme="legacy"
-                    rowData={rowData}
-                    pinnedTopRowData={pinnedTopRowData}
-                    columnDefs={columnDefs}
-                    getRowId={(params) => params.data?.id ?? "unknown"}
-                    onCellValueChanged={handleCellValueChanged}
-                    onSelectionChanged={handleSelectionChanged}
-                    rowSelection="multiple"
-                    rowMultiSelectWithClick
-                    pagination={true}
-                    paginationPageSize={50}
-                    paginationPageSizeSelector={[25, 50, 100, 200]}
-                    quickFilterText={quickFilter}
-                    includeHiddenColumnsInQuickFilter={true}
-                    cacheQuickFilter={true}
-                    defaultColDef={{
-                      resizable: true,
-                      sortable: true,
-                      filter: 'agTextColumnFilter',
-                      floatingFilter: true,
-                      filterParams: {
-                        filterOptions: ['contains', 'notContains', 'equals', 'notEqual', 'startsWith', 'endsWith'],
-                        defaultOption: 'contains',
-                      },
-                    }}
-                    suppressRowClickSelection={false}
-                    animateRows={true}
-                  />
-                </div>
+
+            {/* Stats bar */}
+            {rows.length > 0 && (
+              <div className="flex items-center gap-4 text-sm">
+                <span className="text-gray-500">{rows.length} rows</span>
+                <span className="flex items-center gap-1 text-amber-600">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  {rows.filter(r => rowNeedsReview(r) && !approvedIds.has(r.id)).length} need review
+                </span>
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {approvedIds.size} approved
+                </span>
               </div>
             )}
-            <div className="flex items-center gap-4 text-xs text-gray-500">
-              <p>Tip: Click &quot;Show Confidence&quot; button above to view OCR confidence scores for each field</p>
-              <p>Color coding: <span className="text-green-600 font-medium">Green &gt;=90%</span>, <span className="text-orange-500 font-medium">Orange &gt;=70%</span>, <span className="text-red-600 font-medium">Red &lt;70%</span></p>
-            </div>
-            {showNewRowForm && (
-              <div className="flex justify-end gap-3">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setShowNewRowForm(false);
-                    setNewRowForm({});
-                  }}
-                >
-                  Cancel Row
-                </Button>
-                <Button size="sm" onClick={handleCreateRow}>
-                  Save Row
-                </Button>
-              </div>
+
+            {/* Table view */}
+            {viewMode === "table" && (
+              <>
+                <Input
+                  placeholder="Quick search all columns..."
+                  value={quickFilter}
+                  onChange={(e) => setQuickFilter(e.target.value)}
+                  className="max-w-md"
+                />
+                {!selectedTable || columnDefs.length === 0 ? (
+                  <p className="text-sm text-gray-500">No rows yet.</p>
+                ) : (
+                  <div className="overflow-auto rounded border" key={selectedTable.id}>
+                    <div className="ag-theme-alpine" style={{ width: "100%", height: gridHeight, zoom: `${zoomLevel}%`, transition: 'zoom 0.2s ease' }}>
+                      <AgGridReact
+                        key={selectedTable.id}
+                        ref={gridRef}
+                        theme="legacy"
+                        rowData={rowData}
+                        pinnedTopRowData={pinnedTopRowData}
+                        columnDefs={columnDefs}
+                        getRowId={(params) => params.data?.id ?? "unknown"}
+                        onCellValueChanged={handleCellValueChanged}
+                        onSelectionChanged={handleSelectionChanged}
+                        rowSelection="multiple"
+                        rowMultiSelectWithClick
+                        pagination={true}
+                        paginationPageSize={50}
+                        paginationPageSizeSelector={[25, 50, 100, 200]}
+                        quickFilterText={quickFilter}
+                        includeHiddenColumnsInQuickFilter={true}
+                        cacheQuickFilter={true}
+                        defaultColDef={{
+                          resizable: true,
+                          sortable: true,
+                          filter: 'agTextColumnFilter',
+                          floatingFilter: true,
+                          filterParams: { filterOptions: ['contains', 'notContains', 'equals', 'notEqual', 'startsWith', 'endsWith'], defaultOption: 'contains' },
+                        }}
+                        suppressRowClickSelection={false}
+                        animateRows={true}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <p>Tip: Click &quot;Show Confidence&quot; to view OCR confidence scores</p>
+                  <p>Color: <span className="text-green-600 font-medium">Green ≥90%</span>, <span className="text-orange-500 font-medium">Orange ≥70%</span>, <span className="text-red-600 font-medium">Red &lt;70%</span></p>
+                </div>
+                {showNewRowForm && (
+                  <div className="flex justify-end gap-3">
+                    <Button variant="outline" size="sm" onClick={() => { setShowNewRowForm(false); setNewRowForm({}); }}>Cancel Row</Button>
+                    <Button size="sm" onClick={handleCreateRow}>Save Row</Button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Cards view */}
+            {viewMode === "cards" && (
+              <>
+                {rows.length === 0 ? (
+                  <p className="text-sm text-gray-500">No rows yet.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {rows.map(row => (
+                      <DocumentCard
+                        key={row.id}
+                        row={row}
+                        table={selectedTable}
+                        cardType={detectCardType(selectedTable.name)}
+                        isApproved={approvedIds.has(row.id)}
+                        editingId={editingId}
+                        editValues={editValues}
+                        onApprove={handleApprove}
+                        onStartEdit={handleStartEdit}
+                        onSaveEdit={handleSaveEdit}
+                        onCancelEdit={handleCancelEdit}
+                        onEditChange={handleEditChange}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Review queue view */}
+            {viewMode === "review" && (
+              <>
+                {(() => {
+                  const needsReview = rows.filter(r => rowNeedsReview(r) && !approvedIds.has(r.id));
+                  const alreadyApproved = rows.filter(r => approvedIds.has(r.id));
+                  return (
+                    <div className="space-y-6">
+                      {needsReview.length === 0 && alreadyApproved.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 text-center">
+                          <CheckCircle2 className="h-12 w-12 text-green-400 mb-3" />
+                          <p className="text-lg font-semibold text-gray-700">All clear!</p>
+                          <p className="text-sm text-gray-500">No rows require review.</p>
+                        </div>
+                      ) : (
+                        <>
+                          {needsReview.length > 0 && (
+                            <div>
+                              <h3 className="text-sm font-semibold text-amber-700 mb-3 flex items-center gap-1.5">
+                                <AlertCircle className="h-4 w-4" />Needs Review ({needsReview.length})
+                              </h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                {needsReview.map(row => (
+                                  <DocumentCard
+                                    key={row.id}
+                                    row={row}
+                                    table={selectedTable}
+                                    cardType={detectCardType(selectedTable.name)}
+                                    isApproved={false}
+                                    editingId={editingId}
+                                    editValues={editValues}
+                                    onApprove={handleApprove}
+                                    onStartEdit={handleStartEdit}
+                                    onSaveEdit={handleSaveEdit}
+                                    onCancelEdit={handleCancelEdit}
+                                    onEditChange={handleEditChange}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {alreadyApproved.length > 0 && (
+                            <div>
+                              <h3 className="text-sm font-semibold text-green-700 mb-3 flex items-center gap-1.5">
+                                <CheckCircle2 className="h-4 w-4" />Approved ({alreadyApproved.length})
+                              </h3>
+                              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                {alreadyApproved.map(row => (
+                                  <DocumentCard
+                                    key={row.id}
+                                    row={row}
+                                    table={selectedTable}
+                                    cardType={detectCardType(selectedTable.name)}
+                                    isApproved={true}
+                                    editingId={editingId}
+                                    editValues={editValues}
+                                    onApprove={handleApprove}
+                                    onStartEdit={handleStartEdit}
+                                    onSaveEdit={handleSaveEdit}
+                                    onCancelEdit={handleCancelEdit}
+                                    onEditChange={handleEditChange}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+              </>
             )}
           </Card>
 
