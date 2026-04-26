@@ -186,11 +186,20 @@ export default function DataPage() {
 
   // Cards / Review view state
   const [viewMode, setViewMode] = useState<"table" | "cards" | "review">("table");
-  const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
+  const [approvedIds, setApprovedIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("docupop_approved_ids");
+      return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>();
+    } catch { return new Set<string>(); }
+  });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
 
-  const handleApprove = (id: string) => setApprovedIds(prev => new Set([...prev, id]));
+  const handleApprove = (id: string) => setApprovedIds(prev => {
+    const next = new Set([...prev, id]);
+    try { localStorage.setItem("docupop_approved_ids", JSON.stringify([...next])); } catch {}
+    return next;
+  });
   const handleStartEdit = (row: DataRow) => {
     const vals: Record<string, string> = {};
     if (selectedTable) {
@@ -215,7 +224,11 @@ export default function DataPage() {
     try {
       await apiService.updateDataRow(selectedTable.id, id, payload);
       await loadRows(selectedTable.id);
-      setApprovedIds(prev => new Set([...prev, id]));
+      setApprovedIds(prev => {
+        const next = new Set([...prev, id]);
+        try { localStorage.setItem("docupop_approved_ids", JSON.stringify([...next])); } catch {}
+        return next;
+      });
     } catch { toast.error("Unable to save"); }
     setEditingId(null);
     setEditValues({});
