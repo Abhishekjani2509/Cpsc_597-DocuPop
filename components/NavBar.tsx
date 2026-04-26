@@ -11,6 +11,7 @@ const authLinks = [
   { href: '/documents', label: 'Documents' },
   { href: '/processing', label: 'Processing' },
   { href: '/data', label: 'Data' },
+  { href: '/adapters', label: 'Adapters' },
 ];
 
 export default function NavBar() {

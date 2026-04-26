@@ -58,7 +58,9 @@ export interface TextractAdapterVersion {
 export interface TextractAdapter {
   id: string;
   name: string;
+  description?: string;
   featureTypes: string[];
+  createdAt?: string | null;
   versions: TextractAdapterVersion[];
 }
 
@@ -232,6 +234,27 @@ export const apiService = {
   async listTextractAdapters(): Promise<TextractAdapter[]> {
     const data = await requestJson<{ adapters: TextractAdapter[] }>('/textract/adapters');
     return data.adapters;
+  },
+
+  async getTextractAdapter(adapterId: string): Promise<TextractAdapter> {
+    const data = await requestJson<{ adapter: TextractAdapter }>(`/textract/adapters/${adapterId}`);
+    return data.adapter;
+  },
+
+  async createTextractAdapter(payload: {
+    name: string;
+    description?: string;
+    featureTypes: string[];
+  }): Promise<TextractAdapter> {
+    const data = await requestJson<{ adapter: TextractAdapter }>('/textract/adapters', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return data.adapter;
+  },
+
+  async deleteTextractAdapter(adapterId: string): Promise<void> {
+    await requestJson<{ success: boolean }>(`/textract/adapters/${adapterId}`, { method: 'DELETE' });
   },
 
   async listDataTables(): Promise<DataTable[]> {

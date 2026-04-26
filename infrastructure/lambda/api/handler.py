@@ -1662,40 +1662,39 @@ def handle_delete_processing_job(event, context):
             return create_cors_response(401, {"error": str(e)})
         return create_cors_response(500, {"error": str(e)})
 
+def _build_adapter_versions(textract_client, adapter_id, active_only=False):
+    """Fetch all versions for an adapter, optionally filtered to ACTIVE only."""
+    versions_response = textract_client.list_adapter_versions(AdapterId=adapter_id)
+    versions = []
+    for version in versions_response.get('AdapterVersions', []):
+        status = version.get('Status')
+        if active_only and status != 'ACTIVE':
+            continue
+        versions.append({
+            'version': version.get('AdapterVersion'),
+            'status': status,
+            'createdAt': version.get('CreationTime').isoformat() if version.get('CreationTime') else None,
+        })
+    return versions
+
 def handle_list_textract_adapters(event, context):
-    """List available Textract custom adapters and their versions"""
+    """List all Textract custom adapters with all version statuses."""
     try:
         user = get_current_user(event)
-        textract_client = boto3.client('textract')
+        textract_client = boto3.client('textract', region_name='us-east-1')
 
-        # List all adapters
         adapters_response = textract_client.list_adapters()
         adapters = []
 
         for adapter in adapters_response.get('Adapters', []):
             adapter_id = adapter.get('AdapterId')
-            adapter_name = adapter.get('AdapterName', 'Unnamed')
-            feature_types = adapter.get('FeatureTypes', [])
-
-            # Get versions for this adapter
-            versions_response = textract_client.list_adapter_versions(AdapterId=adapter_id)
-            versions = []
-
-            for version in versions_response.get('AdapterVersions', []):
-                version_info = {
-                    'version': version.get('AdapterVersion'),  # AWS returns AdapterVersion, not Version
-                    'status': version.get('Status'),
-                    'createdAt': version.get('CreationTime').isoformat() if version.get('CreationTime') else None,
-                }
-                # Only include active versions
-                if version.get('Status') == 'ACTIVE':
-                    versions.append(version_info)
-
             adapters.append({
                 'id': adapter_id,
-                'name': adapter_name,
-                'featureTypes': feature_types,
-                'versions': versions,
+                'name': adapter.get('AdapterName', 'Unnamed'),
+                'description': adapter.get('Description', ''),
+                'featureTypes': adapter.get('FeatureTypes', []),
+                'createdAt': adapter.get('CreationTime').isoformat() if adapter.get('CreationTime') else None,
+                'versions': _build_adapter_versions(textract_client, adapter_id),
             })
 
         return create_cors_response(200, {"adapters": adapters})
@@ -1704,6 +1703,106 @@ def handle_list_textract_adapters(event, context):
         if "Not authenticated" in str(e) or "Invalid token" in str(e):
             return create_cors_response(401, {"error": str(e)})
         print(f"Error listing adapters: {str(e)}")
+        return create_cors_response(500, {"error": str(e)})
+
+def handle_create_textract_adapter(event, context):
+    """Create a new Textract custom adapter."""
+    try:
+        user = get_current_user(event)
+        body = json.loads(event.get('body') or '{}')
+        name = body.get('name', '').strip()
+        description = body.get('description', '').strip()
+        feature_types = body.get('featureTypes', ['TABLES'])
+
+        if not name:
+            return create_cors_response(400, {"error": "name is required"})
+        valid_types = {'TABLES', 'FORMS'}
+        feature_types = [ft for ft in feature_types if ft in valid_types]
+        if not feature_types:
+            return create_cors_response(400, {"error": "at least one valid featureType (TABLES or FORMS) required"})
+
+        textract_client = boto3.client('textract', region_name='us-east-1')
+        params = {
+            'AdapterName': name,
+            'FeatureTypes': feature_types,
+            'AutoUpdate': 'DISABLED',
+        }
+        if description:
+            params['Description'] = description
+
+        response = textract_client.create_adapter(**params)
+        adapter_id = response['AdapterId']
+
+        return create_cors_response(201, {
+            'adapter': {
+                'id': adapter_id,
+                'name': name,
+                'description': description,
+                'featureTypes': feature_types,
+                'versions': [],
+            }
+        })
+
+    except Exception as e:
+        if "Not authenticated" in str(e) or "Invalid token" in str(e):
+            return create_cors_response(401, {"error": str(e)})
+        print(f"Error creating adapter: {str(e)}")
+        return create_cors_response(500, {"error": str(e)})
+
+def handle_get_textract_adapter(event, context):
+    """Get a single adapter with all version statuses."""
+    try:
+        user = get_current_user(event)
+        path = event.get('path', '')
+        adapter_id = path.split('/')[-1]
+
+        textract_client = boto3.client('textract', region_name='us-east-1')
+        info = textract_client.get_adapter(AdapterId=adapter_id)
+
+        return create_cors_response(200, {
+            'adapter': {
+                'id': adapter_id,
+                'name': info.get('AdapterName', ''),
+                'description': info.get('Description', ''),
+                'featureTypes': info.get('FeatureTypes', []),
+                'createdAt': info.get('CreationTime').isoformat() if info.get('CreationTime') else None,
+                'versions': _build_adapter_versions(textract_client, adapter_id),
+            }
+        })
+
+    except Exception as e:
+        if "Not authenticated" in str(e) or "Invalid token" in str(e):
+            return create_cors_response(401, {"error": str(e)})
+        print(f"Error getting adapter: {str(e)}")
+        return create_cors_response(500, {"error": str(e)})
+
+def handle_delete_textract_adapter(event, context):
+    """Delete a Textract adapter and all its versions."""
+    try:
+        user = get_current_user(event)
+        path = event.get('path', '')
+        adapter_id = path.split('/')[-1]
+
+        textract_client = boto3.client('textract', region_name='us-east-1')
+
+        # Delete all versions first (required before deleting the adapter)
+        versions_response = textract_client.list_adapter_versions(AdapterId=adapter_id)
+        for version in versions_response.get('AdapterVersions', []):
+            try:
+                textract_client.delete_adapter_version(
+                    AdapterId=adapter_id,
+                    AdapterVersion=version.get('AdapterVersion')
+                )
+            except Exception:
+                pass
+
+        textract_client.delete_adapter(AdapterId=adapter_id)
+        return create_cors_response(200, {"success": True})
+
+    except Exception as e:
+        if "Not authenticated" in str(e) or "Invalid token" in str(e):
+            return create_cors_response(401, {"error": str(e)})
+        print(f"Error deleting adapter: {str(e)}")
         return create_cors_response(500, {"error": str(e)})
 
 def handle_queue_processing_jobs(event, context):
@@ -2533,6 +2632,12 @@ def handler(event, context):
         # Textract adapters routes
         elif method == "GET" and path == "/api/textract/adapters":
             return handle_list_textract_adapters(event, context)
+        elif method == "POST" and path == "/api/textract/adapters":
+            return handle_create_textract_adapter(event, context)
+        elif method == "GET" and re.match(r'^/api/textract/adapters/[^/]+$', path):
+            return handle_get_textract_adapter(event, context)
+        elif method == "DELETE" and re.match(r'^/api/textract/adapters/[^/]+$', path):
+            return handle_delete_textract_adapter(event, context)
 
         else:
             return create_cors_response(404, {"error": "Not found", "path": path, "method": method})
