@@ -104,7 +104,6 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 async function requestJson<T>(path: string, init?: RequestInit) {
   const response = await fetch(buildUrl(path), {
-    credentials: 'include',
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -266,7 +265,6 @@ export const apiService = {
     formData.append('file', file);
     const response = await fetch(buildUrl(`/data/tables/${tableId}/import`), {
       method: 'POST',
-      credentials: 'include',
       headers: {
         ...getAuthHeaders(),
       },

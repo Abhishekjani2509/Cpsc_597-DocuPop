@@ -38,7 +38,6 @@ const buildUrl = (path: string) => `${API_PREFIX}${path}`;
 
 async function request<T>(path: string, options?: RequestInit) {
   const response = await fetch(buildUrl(path), {
-    credentials: 'include',
     ...options,
     headers: {
       'Content-Type': 'application/json',
