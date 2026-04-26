@@ -241,6 +241,14 @@ export default function DataPage() {
       try {
         const data = await apiService.listDataRows(tableId);
         setRows(data);
+        // Auto-approve rows with no confidence (CSV uploads) or all fields ≥ 80%
+        setApprovedIds(prev => {
+          const autoIds = data.filter(r => !rowNeedsReview(r)).map(r => r.id);
+          if (autoIds.every(id => prev.has(id))) return prev;
+          const next = new Set([...prev, ...autoIds]);
+          try { localStorage.setItem("docupop_approved_ids", JSON.stringify([...next])); } catch {}
+          return next;
+        });
       } catch (error) {
         console.error("Failed to load rows", error);
         setRows([]);
