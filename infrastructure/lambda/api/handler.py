@@ -1695,7 +1695,12 @@ def handle_list_textract_adapters(event, context):
 
         for adapter in adapters_response.get('Adapters', []):
             adapter_id = adapter.get('AdapterId')
-            raw_desc = adapter.get('Description', '')
+            # list_adapters omits Description; fetch it via get_adapter
+            try:
+                full_info = textract_client.get_adapter(AdapterId=adapter_id)
+                raw_desc = full_info.get('Description', '')
+            except Exception:
+                raw_desc = ''
             default_queries = _parse_adapter_default_queries(raw_desc)
             adapters.append({
                 'id': adapter_id,
