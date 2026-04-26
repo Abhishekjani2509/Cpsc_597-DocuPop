@@ -87,7 +87,6 @@ class AuthService {
       }
 
       const response = await fetch(buildUrl('/me'), {
-        credentials: 'include',
         headers
       });
 
@@ -162,9 +161,7 @@ class AuthService {
   }
 
   async getMfaSetupSecret(session: string): Promise<MfaSetupResponse> {
-    const response = await fetch(buildUrl(`/mfa/setup?session=${encodeURIComponent(session)}`), {
-      credentials: 'include',
-    });
+    const response = await fetch(buildUrl(`/mfa/setup?session=${encodeURIComponent(session)}`));
 
     const data = await response.json();
     if (!response.ok) {
@@ -236,10 +233,7 @@ class AuthService {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(buildUrl('/mfa/status'), {
-      credentials: 'include',
-      headers,
-    });
+    const response = await fetch(buildUrl('/mfa/status'), { headers });
 
     const data = await response.json();
     if (!response.ok) {
@@ -255,10 +249,7 @@ class AuthService {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(buildUrl('/mfa/enable'), {
-      credentials: 'include',
-      headers,
-    });
+    const response = await fetch(buildUrl('/mfa/enable'), { headers });
 
     const data = await response.json();
     if (!response.ok) {
@@ -278,7 +269,6 @@ class AuthService {
 
     const response = await fetch(buildUrl('/mfa/enable'), {
       method: 'POST',
-      credentials: 'include',
       headers,
       body: JSON.stringify({ mfaCode }),
     });
@@ -301,7 +291,6 @@ class AuthService {
 
     const response = await fetch(buildUrl('/mfa/disable'), {
       method: 'POST',
-      credentials: 'include',
       headers,
       body: JSON.stringify({ mfaCode }),
     });
