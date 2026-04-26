@@ -60,16 +60,13 @@ export default function ProcessingPage() {
   const [adapters, setAdapters] = useState<TextractAdapter[]>([]);
   const [loadingAdapters, setLoadingAdapters] = useState(false);
 
-  // Load saved configuration from localStorage on mount
+  // Load saved configuration from localStorage on mount (adapter/queries always start fresh)
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
       const saved = localStorage.getItem("docupop-processing-config");
       if (saved) {
         const config = JSON.parse(saved);
-        if (config.queries) setQueries(config.queries);
-        if (config.adapterId) setAdapterId(config.adapterId);
-        if (config.adapterVersion) setAdapterVersion(config.adapterVersion);
         if (config.ocrEngine) setOcrEngine(config.ocrEngine);
         if (config.showAdvanced) setShowAdvanced(config.showAdvanced);
       }
@@ -81,15 +78,9 @@ export default function ProcessingPage() {
   // Save configuration to localStorage whenever it changes
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const config = {
-      queries,
-      adapterId,
-      adapterVersion,
-      ocrEngine,
-      showAdvanced,
-    };
+    const config = { ocrEngine, showAdvanced };
     localStorage.setItem("docupop-processing-config", JSON.stringify(config));
-  }, [queries, adapterId, adapterVersion, ocrEngine, showAdvanced]);
+  }, [ocrEngine, showAdvanced]);
 
   const loadJobs = useCallback(async (showLoading = true) => {
     if (!user) return;
