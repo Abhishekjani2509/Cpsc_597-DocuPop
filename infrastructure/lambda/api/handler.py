@@ -1716,10 +1716,10 @@ def handle_create_textract_adapter(event, context):
 
         if not name:
             return create_cors_response(400, {"error": "name is required"})
-        valid_types = {'TABLES', 'FORMS'}
+        valid_types = {'QUERIES'}
         feature_types = [ft for ft in feature_types if ft in valid_types]
         if not feature_types:
-            return create_cors_response(400, {"error": "at least one valid featureType (TABLES or FORMS) required"})
+            feature_types = ['QUERIES']  # default — only supported type
 
         textract_client = boto3.client('textract', region_name='us-east-1')
         params = {

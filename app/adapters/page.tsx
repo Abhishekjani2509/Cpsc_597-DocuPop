@@ -41,7 +41,7 @@ export default function AdaptersPage() {
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [form, setForm] = useState<CreateForm>({ name: "", description: "", featureTypes: ["TABLES"] });
+  const [form, setForm] = useState<CreateForm>({ name: "", description: "", featureTypes: ["QUERIES"] });
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadAdapters = useCallback(async () => {
@@ -116,15 +116,6 @@ export default function AdaptersPage() {
   };
 
   const toggleExpand = (id: string) => setExpandedId(prev => prev === id ? null : id);
-
-  const toggleFeatureType = (ft: string) => {
-    setForm(prev => ({
-      ...prev,
-      featureTypes: prev.featureTypes.includes(ft)
-        ? prev.featureTypes.filter(f => f !== ft)
-        : [...prev.featureTypes, ft],
-    }));
-  };
 
   if (pageLoading || loading) {
     return (
@@ -202,23 +193,11 @@ export default function AdaptersPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Feature Types <span className="text-red-500">*</span></label>
-                  <div className="flex gap-3">
-                    {["TABLES", "FORMS"].map(ft => (
-                      <label key={ft} className="flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={form.featureTypes.includes(ft)}
-                          onChange={() => toggleFeatureType(ft)}
-                          className="h-4 w-4 rounded border-gray-300 text-blue-600"
-                        />
-                        <span className="text-sm text-gray-700">{ft}</span>
-                      </label>
-                    ))}
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Feature Type</label>
+                  <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-md w-fit">
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">QUERIES</span>
+                    <span className="text-xs text-gray-500">Textract adapters use query-based extraction</span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    TABLES — structured tabular data · FORMS — key-value pairs and form fields
-                  </p>
                 </div>
                 <div className="flex gap-2 pt-1">
                   <Button type="submit" size="sm" disabled={creating}>
