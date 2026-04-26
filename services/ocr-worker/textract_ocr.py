@@ -17,7 +17,9 @@ from botocore.exceptions import ClientError
 
 
 # Initialize AWS clients (credentials from IAM role or environment)
-textract_client = boto3.client('textract')
+textract_client = boto3.client('textract')  # default region for basic OCR
+# Adapters only exist in us-east-1; used selectively in analyze_document_with_queries
+_textract_client_us_east_1 = boto3.client('textract', region_name='us-east-1')
 s3_client = boto3.client('s3')
 
 
@@ -266,12 +268,20 @@ def analyze_document_with_queries(
         if not request_params["FeatureTypes"]:
             request_params["FeatureTypes"].append("FORMS")
 
-        # Debug: Log the full request
-        import json
-        print(f"[DEBUG] AnalyzeDocument request: {json.dumps(request_params, default=str)}")
+        # Adapters live in us-east-1 but the S3 bucket is in us-west-1.
+        # Textract in us-east-1 cannot access cross-region S3, so for adapter calls
+        # we download the bytes locally (Lambda→S3 is same region) and send as Bytes.
+        if adapter_id:
+            s3_doc = request_params["Document"]["S3Object"]
+            obj = s3_client.get_object(Bucket=s3_doc["Bucket"], Key=s3_doc["Name"])
+            doc_bytes = obj["Body"].read()
+            request_params["Document"] = {"Bytes": doc_bytes}
 
-        # Call AnalyzeDocument API
-        response = textract_client.analyze_document(**request_params)
+        import json
+        print(f"[DEBUG] AnalyzeDocument request (doc omitted): {json.dumps({k: v for k, v in request_params.items() if k != 'Document'}, default=str)}")
+
+        client = _textract_client_us_east_1 if adapter_id else textract_client
+        response = client.analyze_document(**request_params)
 
         blocks = response.get("Blocks", [])
 

@@ -385,12 +385,16 @@ export default function ProcessingPage() {
                       onChange={(e) => {
                         const newAdapterId = e.target.value;
                         setAdapterId(newAdapterId);
-                        // Auto-select latest version (first in list) when adapter changes
                         const selectedAdapter = adapters.find(a => a.id === newAdapterId);
+                        // Auto-select latest active version
                         if (selectedAdapter && selectedAdapter.versions.length > 0) {
                           setAdapterVersion(selectedAdapter.versions[0].version);
                         } else {
                           setAdapterVersion("");
+                        }
+                        // Auto-populate default queries if adapter has them and user hasn't added any
+                        if (selectedAdapter?.defaultQueries?.length && queries.length === 0) {
+                          setQueries(selectedAdapter.defaultQueries.map(q => ({ text: q.alias, alias: q.alias })));
                         }
                       }}
                     >

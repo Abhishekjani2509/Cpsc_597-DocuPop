@@ -62,6 +62,7 @@ export interface TextractAdapter {
   featureTypes: string[];
   createdAt?: string | null;
   versions: TextractAdapterVersion[];
+  defaultQueries?: { alias: string }[];
 }
 
 export interface DataRow {

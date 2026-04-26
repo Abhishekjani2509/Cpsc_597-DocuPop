@@ -1677,6 +1677,13 @@ def _build_adapter_versions(textract_client, adapter_id, active_only=False):
         })
     return versions
 
+def _parse_adapter_default_queries(description: str):
+    """Parse default queries stored in adapter description as 'queries:Alias1|Alias2|...'."""
+    if not description or not description.startswith('queries:'):
+        return []
+    aliases = description[len('queries:'):].split('|')
+    return [{'alias': a.strip()} for a in aliases if a.strip()]
+
 def handle_list_textract_adapters(event, context):
     """List all Textract custom adapters with all version statuses."""
     try:
@@ -1688,13 +1695,16 @@ def handle_list_textract_adapters(event, context):
 
         for adapter in adapters_response.get('Adapters', []):
             adapter_id = adapter.get('AdapterId')
+            raw_desc = adapter.get('Description', '')
+            default_queries = _parse_adapter_default_queries(raw_desc)
             adapters.append({
                 'id': adapter_id,
                 'name': adapter.get('AdapterName', 'Unnamed'),
-                'description': adapter.get('Description', ''),
+                'description': raw_desc,
                 'featureTypes': adapter.get('FeatureTypes', []),
                 'createdAt': adapter.get('CreationTime').isoformat() if adapter.get('CreationTime') else None,
                 'versions': _build_adapter_versions(textract_client, adapter_id),
+                'defaultQueries': default_queries,
             })
 
         return create_cors_response(200, {"adapters": adapters})
