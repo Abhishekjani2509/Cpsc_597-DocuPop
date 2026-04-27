@@ -1,6 +1,6 @@
 # DocuPop - AI-Powered Document Processing Platform
 
-A cloud-native document management and OCR processing platform built on AWS. DocuPop enables users to upload, organize, and intelligently extract data from documents using **AWS Textract**, storing structured results in user-defined data tables.
+A cloud-native document management and OCR processing platform built on AWS. DocuPop enables users to upload, organize, and intelligently extract data from documents using **AWS Textract**, storing structured results in user-defined data tables with a Smart Review workflow.
 
 **Built for CPSC-597 (MS Computer Science, Cal State Fullerton)**
 
@@ -19,11 +19,6 @@ A cloud-native document management and OCR processing platform built on AWS. Doc
 - [Prerequisites](#prerequisites)
 - [Local Development Setup](#local-development-setup)
 - [AWS Deployment Guide](#aws-deployment-guide)
-  - [Step 1: Terraform Infrastructure](#step-1-terraform-infrastructure)
-  - [Step 2: Deploy API Lambda](#step-2-deploy-api-lambda)
-  - [Step 3: Deploy OCR Worker](#step-3-deploy-ocr-worker)
-  - [Step 4: Create Amplify App](#step-4-create-amplify-app)
-  - [Step 5: Update CORS Origins](#step-5-update-cors-origins)
 - [Environment Variables](#environment-variables)
 - [CI/CD Pipeline](#cicd-pipeline)
 - [Teardown](#teardown)
@@ -37,12 +32,12 @@ A cloud-native document management and OCR processing platform built on AWS. Doc
 DocuPop is a full-stack document processing system that combines a modern React frontend with a serverless AWS backend. The complete workflow:
 
 1. **User signs up/logs in** via AWS Cognito authentication
-2. **Uploads documents** (PDF, images) which are stored in S3
+2. **Uploads documents** (PDF, PNG, JPG, TIFF, WEBP) stored in S3
 3. **Creates custom data tables** to define what data to extract
-4. **Queues OCR processing jobs** which are sent to SQS
-5. **OCR worker Lambda** picks up jobs, uses AWS Textract to extract text/fields
-6. **Extracted data** is mapped to user-defined table columns and stored in PostgreSQL
-7. **Users review, edit, and export** the structured data
+4. **Queues OCR processing jobs** sent to SQS with optional Textract adapters and custom queries
+5. **OCR Worker Lambda** picks up jobs, uses AWS Textract to extract structured fields
+6. **Extracted data** is mapped to user-defined table columns and stored in PostgreSQL with per-field confidence scores
+7. **Users review extracted data** via Smart Cards and Review Queue — approving, editing, and exporting results
 
 ---
 
@@ -72,6 +67,7 @@ DocuPop is a full-stack document processing system that combines a modern React 
                               |  - Documents CRUD           |
                               |  - Data Tables CRUD         |
                               |  - Processing Jobs          |
+                              |  - Textract Adapters List   |
                               +----+----------+--------+----+
                                    |          |        |
                           +--------+    +-----+--+   +-+--------+
@@ -85,12 +81,14 @@ DocuPop is a full-stack document processing system that combines a modern React 
                     +---------+                   |
                                                   | Triggers
                                                   v
-                                         +------------------+
-                                         | OCR Worker Lambda|
-                                         | (Container/ECR)  |
-                                         |                  |
-                                         | AWS Textract     |
-                                         +------------------+
+                                         +--------------------+
+                                         | OCR Worker Lambda  |
+                                         | (Container/ECR)    |
+                                         |                    |
+                                         | Textract us-west-1 |
+                                         | Textract us-east-1 |
+                                         | (adapter calls)    |
+                                         +--------------------+
 ```
 
 ### Network Architecture
@@ -119,24 +117,22 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
 ### 1. AWS Amplify (Frontend Hosting)
 - **Purpose**: Hosts the Next.js 15 SSR application
 - **Platform**: `WEB_COMPUTE` (supports server-side rendering)
-- **Auto-deploy**: Connected to GitHub repository; builds on push to `main`
+- **Auto-deploy**: Connected to GitHub repository; builds on every push to `main`
 - **Build process**: Installs dependencies, injects environment variables into `.env.production`, builds Next.js app
 
 ### 2. Amazon API Gateway (REST API)
 - **Purpose**: HTTPS entry point for all backend API calls
 - **Type**: Regional REST API
 - **Routing**: Catch-all `{proxy+}` resource forwards all requests to the API Lambda
-- **CORS**: Preflight OPTIONS handled via MOCK integration with specific origin, credentials support
-- **Stage**: Single `api` stage with CloudWatch access logging
+- **CORS**: Preflight OPTIONS handled via MOCK integration with dynamic origin support
 
 ### 3. AWS Lambda - API Handler
-- **Purpose**: Main backend logic - handles all HTTP requests
+- **Purpose**: Main backend logic — handles all HTTP requests
 - **Runtime**: Python 3.11
 - **Memory**: 512 MB
 - **Timeout**: 30 seconds
-- **Deployment**: ZIP package uploaded directly
-- **Responsibilities**: Authentication, document management, data tables, processing job management
-- **VPC**: Runs in private subnets for RDS access
+- **Deployment**: ZIP package (handler + all Python dependencies)
+- **Responsibilities**: Authentication, document management, data tables, processing jobs, Textract adapter listing
 
 ### 4. AWS Lambda - OCR Worker
 - **Purpose**: Processes OCR jobs asynchronously
@@ -144,8 +140,8 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
 - **Memory**: 1536 MB
 - **Timeout**: 900 seconds (15 minutes)
 - **Trigger**: SQS queue (batch size 10, max concurrency 10)
-- **OCR Engine**: AWS Textract (AnalyzeDocument with custom queries and adapters)
-- **VPC**: Runs in private subnets for RDS access
+- **OCR Engine**: AWS Textract (`AnalyzeDocument` with optional custom queries and adapters)
+- **Dual-region Textract**: Default client in `us-west-1` for standard OCR; dedicated `us-east-1` client for adapter calls (adapters only exist in us-east-1). When an adapter is used, document bytes are downloaded from S3 and passed directly to Textract to avoid cross-region S3 access issues.
 
 ### 5. Amazon RDS (PostgreSQL)
 - **Purpose**: Primary database for all application data
@@ -165,7 +161,6 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
   - Abort incomplete multipart uploads after 7 days
   - Transition to Infrequent Access after 90 days
   - Delete old versions after 30 days
-- **CORS**: Configured for presigned URL uploads from Amplify domain
 
 ### 7. Amazon SQS (Job Queue)
 - **Purpose**: Decouples OCR job submission from processing
@@ -180,7 +175,7 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
 - **Authentication**: Email-based sign up/sign in
 - **Password Policy**: Minimum 8 characters, requires uppercase, lowercase, and numbers
 - **MFA**: Optional TOTP (Time-based One-Time Password) via authenticator apps
-- **Token Flow**: Frontend obtains JWT from Cognito -> sends as `Authorization: Bearer <token>` -> Lambda validates token
+- **Token Flow**: Frontend obtains JWT from Cognito → sends as `Authorization: Bearer <token>` → Lambda validates token
 - **Multi-tenancy**: Each user identified by Cognito `sub` (UUID), all data queries filtered by user ID
 
 ### 9. Amazon ECR (Container Registry)
@@ -190,14 +185,13 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
 
 ### 10. Amazon CloudWatch (Logging & Monitoring)
 - **Log Groups**:
-  - `/aws/lambda/docupop-staging-api` - API Lambda logs
-  - `/aws/lambda/docupop-staging-ocr-worker` - OCR Worker logs
-  - `/aws/api-gateway/docupop-staging` - API Gateway access logs
+  - `/aws/lambda/docupop-staging-api` — API Lambda logs
+  - `/aws/lambda/docupop-staging-ocr-worker` — OCR Worker logs
+  - `/aws/api-gateway/docupop-staging` — API Gateway access logs
 - **Retention**: 14 days
 
 ### 11. AWS IAM (Permissions)
-- **Lambda Execution Role**: Permissions for S3, SQS, RDS, Secrets Manager, CloudWatch, VPC, Cognito
-- **API Gateway Role**: CloudWatch logging permissions
+- **Lambda Execution Role**: Permissions for S3, SQS, RDS, Secrets Manager, CloudWatch, VPC, Cognito, Textract
 - **Principle of Least Privilege**: Each service has only the permissions it needs
 
 ### 12. AWS Secrets Manager
@@ -206,10 +200,9 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
 
 ### 13. VPC & Networking
 - **VPC**: `10.0.0.0/16` CIDR block
-- **Public Subnets**: 2 subnets across 2 AZs (for NAT Gateway, Internet Gateway)
-- **Private Subnets**: 2 subnets across 2 AZs (for RDS, Lambda functions)
-- **NAT Gateway**: Allows private subnet resources to access the internet
-- **Security Groups**: Separate groups for RDS (port 5432) and Lambda functions
+- **Public Subnets**: 2 subnets across 2 AZs (NAT Gateway, Internet Gateway)
+- **Private Subnets**: 2 subnets across 2 AZs (RDS, Lambda functions)
+- **NAT Gateway**: Allows private subnet resources to reach the internet
 
 ---
 
@@ -223,7 +216,7 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
 | TypeScript | 5.x | Type safety |
 | Tailwind CSS | 3.4.17 | Utility-first CSS framework |
 | AG Grid | 33.0.3 | Interactive data table grid |
-| Radix UI | Latest | Accessible UI primitives (progress bars) |
+| Radix UI | Latest | Accessible UI primitives |
 | Lucide React | 0.468.0 | Icon library |
 | Sonner | 2.0.7 | Toast notifications |
 | PapaParse | 5.5.3 | CSV parsing for data import |
@@ -232,17 +225,17 @@ DocuPop uses the following AWS services, all provisioned via Terraform:
 ### Backend
 | Technology | Version | Purpose |
 |---|---|---|
-| Python | 3.11 | API Lambda runtime |
-| pg8000 | Latest | Pure Python PostgreSQL driver |
+| Python | 3.11 | Lambda runtime |
+| pg8000 | Latest | Pure Python PostgreSQL driver (API Lambda) |
 | boto3 | Latest | AWS SDK for Python |
-| psycopg2 | Latest | PostgreSQL driver (OCR worker) |
+| psycopg2 | Latest | PostgreSQL driver (OCR Worker) |
 
 ### Infrastructure
 | Technology | Version | Purpose |
 |---|---|---|
 | Terraform | 1.0+ | Infrastructure as Code |
 | Docker | Latest | Container builds for OCR worker |
-| GitHub Actions | - | CI/CD pipeline |
+| GitHub Actions | — | CI/CD pipeline |
 | AWS CLI | v2 | AWS resource management |
 
 ---
@@ -259,133 +252,80 @@ DocuPop/
 │   ├── documents/
 │   │   └── page.tsx                        # Document listing & management
 │   ├── processing/
-│   │   └── page.tsx                        # OCR job processing center
+│   │   └── page.tsx                        # OCR processing center
+│   ├── adapters/
+│   │   └── page.tsx                        # Textract custom adapters management
 │   ├── data/
-│   │   └── page.tsx                        # Data tables & extracted data
+│   │   └── page.tsx                        # Data Hub: tables, rows, cards, review queue
 │   ├── api/                                # Next.js API routes (proxy to Lambda)
-│   │   ├── auth/
-│   │   │   ├── signup/route.ts             # User registration
-│   │   │   ├── login/route.ts              # User login
-│   │   │   ├── logout/route.ts             # User logout
-│   │   │   ├── me/route.ts                 # Get current user
-│   │   │   ├── refresh/route.ts            # Refresh JWT token
-│   │   │   ├── forgot-password/route.ts    # Password reset request
-│   │   │   ├── reset-password/route.ts     # Password reset completion
-│   │   │   └── mfa/
-│   │   │       ├── setup/route.ts          # MFA setup (TOTP)
-│   │   │       └── verify/route.ts         # MFA code verification
-│   │   ├── documents/
-│   │   │   ├── route.ts                    # List & upload documents
-│   │   │   └── [id]/
-│   │   │       ├── route.ts                # Get/delete document
-│   │   │       ├── download/route.ts       # Presigned download URL
-│   │   │       └── view/route.ts           # Presigned view URL
-│   │   ├── processing/
-│   │   │   ├── route.ts                    # List & submit OCR jobs
-│   │   │   ├── [id]/route.ts              # Job status/details
-│   │   │   └── jobs/
-│   │   │       ├── next/route.ts           # Worker: fetch next job
-│   │   │       └── [id]/route.ts           # Worker: update job status
-│   │   └── data/
-│   │       └── tables/
-│   │           ├── route.ts                # List & create tables
-│   │           └── [id]/
-│   │               ├── route.ts            # Get/update/delete table
-│   │               ├── rows/
-│   │               │   ├── route.ts        # List & insert rows
-│   │               │   └── [rowId]/route.ts # Get/update/delete row
-│   │               ├── mappings/
-│   │               │   ├── route.ts        # List & create mappings
-│   │               │   └── [mappingId]/route.ts # Update/delete mapping
-│   │               ├── fields/route.ts     # Manage table fields
-│   │               └── import/route.ts     # CSV data import
-│   └── globals.css                         # Global styles
+│   │   ├── auth/                           # Auth endpoints (signup, login, logout, MFA, etc.)
+│   │   ├── documents/                      # Document CRUD + presigned URLs
+│   │   ├── processing/                     # OCR job management
+│   │   └── data/tables/                    # Table, row, mapping, field, import endpoints
+│   └── globals.css
 │
-├── components/                             # React Components
+├── components/
 │   ├── AuthProvider.tsx                    # Authentication context provider
 │   ├── NavBar.tsx                          # Navigation bar
 │   ├── FileUpload.tsx                      # Drag-and-drop file upload
-│   ├── LinedPaper.tsx                      # Decorative background
-│   ├── auth/
-│   │   ├── LoginForm.tsx                   # Login form
-│   │   ├── SignUpForm.tsx                  # Registration form
-│   │   ├── MfaSetupForm.tsx               # MFA setup UI
-│   │   └── MfaVerifyForm.tsx              # MFA verification UI
-│   └── ui/                                 # Reusable UI primitives
-│       ├── button.tsx
-│       ├── card.tsx
-│       ├── input.tsx
-│       ├── textarea.tsx
-│       ├── badge.tsx
-│       ├── progress.tsx
-│       ├── skeleton.tsx
-│       ├── empty-state.tsx
-│       ├── toast.tsx
-│       └── view-toggle.tsx
+│   ├── auth/                               # Login, SignUp, MFA forms
+│   └── ui/                                 # Reusable UI primitives (button, card, input, etc.)
 │
-├── lib/                                    # Frontend Libraries
-│   ├── api.ts                              # Centralized API client
+├── lib/
+│   ├── api.ts                              # Centralized API client + TypeScript interfaces
 │   ├── auth-service.ts                     # Authentication service
 │   └── utils.ts                            # Utility functions
 │
-├── server/                                 # Server-side Logic
-│   ├── config.ts                           # Environment configuration
-│   ├── db.ts                               # Database connection pool
-│   ├── data-store.ts                       # Data persistence layer
-│   ├── data-tables.ts                      # Data table operations
-│   ├── processing-store.ts                 # OCR job management
-│   ├── storage-service.ts                  # S3 integration
-│   ├── sqs-service.ts                      # SQS queue operations
-│   └── auth/                               # Auth handlers
+├── server/                                 # Server-side logic
+│   ├── config.ts
+│   ├── db.ts
+│   ├── data-store.ts
+│   ├── data-tables.ts
+│   ├── processing-store.ts
+│   ├── storage-service.ts
+│   ├── sqs-service.ts
+│   └── auth/
 │
-├── infrastructure/                         # Infrastructure Code
-│   ├── terraform/                          # Terraform IaC
-│   │   ├── main.tf                         # Provider config, locals
-│   │   ├── variables.tf                    # Input variable definitions
-│   │   ├── outputs.tf                      # Output values
-│   │   ├── vpc.tf                          # VPC, subnets, NAT, security groups
-│   │   ├── rds.tf                          # PostgreSQL database
-│   │   ├── s3.tf                           # Document storage bucket
-│   │   ├── sqs.tf                          # OCR job queues
-│   │   ├── lambda-api.tf                   # API Lambda function
-│   │   ├── lambda-ocr.tf                   # OCR Worker Lambda
-│   │   ├── ecr.tf                          # Container registry
-│   │   ├── cognito.tf                      # User authentication
-│   │   ├── api-gateway.tf                  # REST API + CORS
-│   │   ├── iam.tf                          # IAM roles & policies
-│   │   ├── amplify.tf                      # Frontend hosting
-│   │   └── terraform.tfvars.example        # Example variable values
-│   └── lambda/
-│       └── api/
-│           └── handler.py                  # API Lambda handler (all routes)
+├── infrastructure/
+│   ├── terraform/                          # All AWS resources as Terraform IaC
+│   │   ├── main.tf, variables.tf, outputs.tf
+│   │   ├── vpc.tf, rds.tf, s3.tf, sqs.tf
+│   │   ├── lambda-api.tf, lambda-ocr.tf
+│   │   ├── ecr.tf, cognito.tf, api-gateway.tf
+│   │   ├── iam.tf, amplify.tf, cloudwatch.tf
+│   │   └── terraform.tfvars.example
+│   └── lambda/api/
+│       └── handler.py                      # API Lambda handler (all routes)
 │
-├── services/
-│   └── ocr-worker/                         # OCR Worker Service
-│       ├── lambda_handler.py               # SQS event handler
-│       ├── textract_ocr.py                 # AWS Textract integration
-│       ├── worker.py                       # Local dev worker (Tesseract)
-│       ├── Dockerfile.lambda               # Container image definition
-│       ├── requirements-lambda.txt         # Production dependencies
-│       ├── requirements.txt                # Dev dependencies
-│       └── deploy-lambda.sh                # Deployment script
+├── services/ocr-worker/
+│   ├── lambda_handler.py                   # SQS event handler
+│   ├── textract_ocr.py                     # Textract integration (dual-region client)
+│   ├── Dockerfile.lambda                   # Container image (linux/amd64)
+│   ├── requirements-lambda.txt
+│   └── deploy-lambda.sh
 │
-├── scripts/
-│   └── reset-database.ts                   # Database reset utility
+├── sample-docs/                            # 15 sample documents (5 per type × 3 types)
+│   ├── employee-sample-pdf.pdf
+│   ├── employee-sample-jpg.jpg
+│   ├── employee-sample-png.png
+│   ├── employee-sample-tiff.tiff
+│   ├── employee-sample-webp.webp
+│   ├── invoice-sample-pdf.pdf
+│   ├── invoice-sample-jpg.jpg
+│   ├── invoice-sample-png.png
+│   ├── invoice-sample-tiff.tiff
+│   ├── invoice-sample-webp.webp
+│   ├── patient-sample-pdf.pdf
+│   ├── patient-sample-jpg.jpg
+│   ├── patient-sample-png.png
+│   ├── patient-sample-tiff.tiff
+│   └── patient-sample-webp.webp
 │
-├── sample-docs/                            # Sample test documents
-│   ├── invoice-sample.pdf
-│   ├── employee-record.pdf
-│   └── patient-intake-form.pdf
-│
-├── .github/
-│   └── workflows/                          # GitHub Actions CI/CD
-│
-├── package.json                            # Node.js dependencies
-├── tsconfig.json                           # TypeScript configuration
-├── next.config.js                          # Next.js configuration
-├── tailwind.config.ts                      # Tailwind CSS configuration
-├── postcss.config.mjs                      # PostCSS configuration
-└── .gitignore                              # Git ignore rules
+├── package.json
+├── tsconfig.json
+├── next.config.js
+├── tailwind.config.ts
+└── .gitignore
 ```
 
 ---
@@ -393,76 +333,97 @@ DocuPop/
 ## Features
 
 ### 1. User Authentication
-- **Sign Up**: Email + password registration via AWS Cognito
-- **Login**: JWT-based authentication with token refresh
-- **MFA**: Optional TOTP-based multi-factor authentication
-- **Password Reset**: Forgot password flow via Cognito
-- **Session Persistence**: Tokens stored in localStorage, auto-refresh on expiry
-- **Multi-tenant**: All data isolated by Cognito user ID (`sub`)
+- Email + password registration and login via AWS Cognito
+- JWT-based auth with automatic token refresh
+- Optional TOTP multi-factor authentication
+- Forgot/reset password flow
+- Full multi-tenancy — all data isolated by Cognito user ID
 
 ### 2. Document Management
-- **Upload**: Drag-and-drop or click-to-upload interface
-- **Storage**: Documents stored in private S3 bucket with AES-256 encryption
-- **View**: In-browser document viewer via presigned URLs
-- **Download**: Secure download links via presigned URLs (1-hour expiry)
-- **Delete**: Removes document from both S3 and database
-- **Supported Formats**: PDF, PNG, JPG, JPEG, TIFF
+- Drag-and-drop or click-to-upload interface
+- **Supported formats**: PDF, PNG, JPG/JPEG, TIFF, WEBP
+- Secure storage in private S3 bucket (AES-256 encryption)
+- In-browser document viewer and secure download via presigned URLs
+- Delete removes document from both S3 and database
 
-### 3. Data Tables
-- **Custom Schemas**: Define tables with named, typed columns (text, number, date)
-- **CRUD Operations**: Create, read, update, and delete rows
-- **AG Grid Integration**: Interactive spreadsheet-like interface for data editing
-- **CSV Import**: Upload CSV files to auto-create columns and import data
-- **Field Mappings**: Map OCR extraction labels to table columns
+### 3. OCR Processing
+- Submit documents for asynchronous OCR via SQS
+- **AWS Textract** production OCR engine with per-field confidence scoring
+- **Custom Adapters**: Select a trained Textract custom adapter for specialized document types (invoices, employee records, patient forms, etc.)
+- **Default queries from adapter**: Adapter descriptions encode default queries (`queries:Field1|Field2|...`) which auto-populate the query list when the adapter is selected
+- **Custom queries**: Define targeted extraction queries for specific fields beyond what the adapter provides
+- **Dual-region Textract**: Standard OCR uses `us-west-1`; adapter calls use a dedicated `us-east-1` client with document bytes passed directly (avoids cross-region S3 restrictions)
+- **Auto-mapping**: Extracted fields automatically mapped to target table columns via field mappings
+- Real-time job status tracking (pending → processing → completed/failed)
+- Dead Letter Queue after 3 failed attempts
 
-### 4. OCR Processing
-- **Job Queue**: Submit documents for OCR processing via SQS
-- **AWS Textract**: Production OCR engine with high accuracy
-- **Custom Adapters**: Use Textract custom adapters for specialized document types (invoices, forms, etc.)
-- **Custom Queries**: Define targeted extraction queries for specific fields
-- **Field Matching**: Multi-tier matching (label-value, proximity, regex/semantic patterns)
-- **Confidence Scoring**: Per-field confidence scores from Textract
-- **Auto-mapping**: Extracted fields automatically mapped to target table columns
-- **Status Tracking**: Real-time job status (pending, processing, completed, failed)
-- **Dead Letter Queue**: Failed jobs sent to DLQ after 3 retry attempts
+### 4. Textract Custom Adapters
+- List all trained adapters from your AWS account (`us-east-1`)
+- View adapter name, version, status, and creation date
+- Adapter description encodes default queries: set description to `queries:FirstName|LastName|Total` and they auto-populate in the Processing page when the adapter is selected
 
-### 5. Processing Workflow
+### 5. Data Hub (Tables & Review)
+- **Custom table schemas**: Define tables with named columns
+- **CSV Import**: Upload CSV files to auto-create columns and import rows (all imported rows are auto-approved)
+- **Field Mappings**: Map OCR extraction labels to table columns for deterministic ingestion
+- **Add Fields**: Add new columns to existing tables at any time
+
+#### Three-View Data Interface
+
+**Table View** — AG Grid spreadsheet with:
+  - Inline cell editing with save-on-change
+  - Confidence bars embedded in each cell (color-coded: green ≥90%, amber ≥70%, red <70%)
+  - Toggle confidence columns on/off
+  - Quick search across all columns
+  - Zoom in/out (30%–150%) and fit-all-columns
+  - Pagination (25/50/100/200 rows)
+  - CSV export
+
+**Cards View** — Document cards with:
+  - Type-aware styling (blue for employees, green for invoices, purple for patients)
+  - Per-field confidence percentage + colored dot
+  - Low-confidence fields highlighted in red
+  - Inline edit mode with save/cancel
+  - Approve button (only shown on rows with fields below 80% confidence)
+
+**Review Queue** — Focused review workflow:
+  - Shows only rows where at least one field has confidence < 80%
+  - Badge on the Review tab shows pending count
+  - Approved section shows already-reviewed rows
+  - Inline edit → auto-approves on save
+
+#### Auto-Approval Logic
+- **CSV-imported rows**: Auto-approved on load (no confidence scores)
+- **High-confidence rows**: Auto-approved on load if all fields ≥ 80%
+- **Approval persists**: Stored in `localStorage` — survives page refresh
+
+### 6. Processing Workflow
 ```
-User submits OCR job
-       |
-       v
-API Lambda validates request
-       |
-       v
-Job record created in PostgreSQL (status: pending)
-       |
-       v
-Message sent to SQS queue
-       |
-       v
+User submits OCR job (document + table + adapter + queries)
+       ↓
+API Lambda creates job record (status: pending) + sends SQS message
+       ↓
 OCR Worker Lambda triggered by SQS
-       |
-       v
-Worker downloads document from S3
-       |
-       v
-AWS Textract processes document
-       |
-       v
-Extracted fields matched to target table schema
-       |
-       v
-Results stored in data_rows (JSONB with confidence)
-       |
-       v
-Job status updated to "completed"
+       ↓
+If adapter: download doc bytes from S3 → send to Textract us-east-1
+If no adapter: send S3 reference to Textract us-west-1
+       ↓
+Textract returns blocks with confidence scores
+       ↓
+Fields matched to target table schema via mappings
+       ↓
+Results stored in data_rows as JSONB {field: {value, confidence}}
+       ↓
+Job status → "completed"
+       ↓
+User reviews in Data Hub (Cards / Review Queue)
 ```
 
 ---
 
 ## Database Schema
 
-The database is automatically initialized by the API Lambda on first request. All tables are created in PostgreSQL:
+The database is automatically initialized by the API Lambda on first request.
 
 ### users
 | Column | Type | Description |
@@ -470,14 +431,13 @@ The database is automatically initialized by the API Lambda on first request. Al
 | id | UUID | Primary key (matches Cognito sub) |
 | email | TEXT | Unique email address |
 | name | TEXT | Display name |
-| password_hash | TEXT | Not used with Cognito (legacy) |
 | created_at | TIMESTAMPTZ | Account creation time |
 
 ### documents
 | Column | Type | Description |
 |---|---|---|
 | id | SERIAL | Auto-increment primary key |
-| user_id | UUID | Foreign key to users (CASCADE delete) |
+| user_id | UUID | Foreign key → users |
 | filename | TEXT | Original filename |
 | stored_filename | TEXT | S3 object key |
 | file_size | INTEGER | File size in bytes |
@@ -488,7 +448,7 @@ The database is automatically initialized by the API Lambda on first request. Al
 | Column | Type | Description |
 |---|---|---|
 | id | UUID | Primary key |
-| user_id | UUID | Foreign key to users (CASCADE delete) |
+| user_id | UUID | Foreign key → users |
 | name | TEXT | Table name |
 | description | TEXT | Optional description |
 | created_at | TIMESTAMPTZ | Creation time |
@@ -497,17 +457,17 @@ The database is automatically initialized by the API Lambda on first request. Al
 | Column | Type | Description |
 |---|---|---|
 | id | UUID | Primary key |
-| table_id | UUID | Foreign key to data_tables (CASCADE delete) |
+| table_id | UUID | Foreign key → data_tables |
 | name | TEXT | Field/column name |
-| data_type | TEXT | Type: text, number, date |
+| data_type | TEXT | text, number, date |
 | position | INTEGER | Column display order |
 
 ### data_rows
 | Column | Type | Description |
 |---|---|---|
 | id | UUID | Primary key |
-| table_id | UUID | Foreign key to data_tables (CASCADE delete) |
-| data | JSONB | Row data: `{field_name: {value, confidence}}` |
+| table_id | UUID | Foreign key → data_tables |
+| data | JSONB | `{field_name: {value, confidence}}` |
 | created_at | TIMESTAMPTZ | Creation time |
 | updated_at | TIMESTAMPTZ | Last update time |
 
@@ -515,29 +475,24 @@ The database is automatically initialized by the API Lambda on first request. Al
 | Column | Type | Description |
 |---|---|---|
 | id | UUID | Primary key |
-| table_id | UUID | Foreign key to data_tables (CASCADE delete) |
-| source_label | TEXT | OCR extraction label to match |
-| target_field | TEXT | Target table field name |
+| table_id | UUID | Foreign key → data_tables |
+| source_label | TEXT | OCR label to match |
+| target_field | TEXT | Target table column |
 | matcher | TEXT | Matching strategy (default: `contains`) |
-| created_at | TIMESTAMPTZ | Creation time |
 
 ### processing_jobs
 | Column | Type | Description |
 |---|---|---|
 | id | UUID | Primary key |
-| user_id | UUID | Foreign key to users (CASCADE delete) |
-| document_id | INTEGER | Foreign key to documents (CASCADE delete) |
-| status | TEXT | pending, processing, completed, failed |
-| engine | TEXT | OCR engine: textract or tesseract |
-| priority | INTEGER | Job priority (default: 0) |
+| user_id | UUID | Foreign key → users |
+| document_id | INTEGER | Foreign key → documents |
+| status | TEXT | pending / processing / completed / failed |
+| engine | TEXT | textract or tesseract |
 | result | JSONB | OCR extraction results |
 | confidence | NUMERIC | Overall confidence score |
 | error | TEXT | Error message if failed |
-| target_table_id | UUID | Optional target table for auto-mapping |
-| created_at | TIMESTAMPTZ | Job creation time |
-| updated_at | TIMESTAMPTZ | Last status update |
-| started_at | TIMESTAMPTZ | Processing start time |
-| completed_at | TIMESTAMPTZ | Processing completion time |
+| target_table_id | UUID | Target table for auto-mapping |
+| created_at / updated_at / started_at / completed_at | TIMESTAMPTZ | Timestamps |
 
 ---
 
@@ -545,7 +500,7 @@ The database is automatically initialized by the API Lambda on first request. Al
 
 **Base URL**: `https://<api-gateway-id>.execute-api.us-west-1.amazonaws.com/api`
 
-All endpoints (except auth) require `Authorization: Bearer <JWT>` header.
+All endpoints except auth require `Authorization: Bearer <JWT>`.
 
 ### Authentication
 | Method | Endpoint | Description |
@@ -563,12 +518,17 @@ All endpoints (except auth) require `Authorization: Bearer <JWT>` header.
 ### Documents
 | Method | Endpoint | Description |
 |---|---|---|
-| GET | `/api/documents` | List all user's documents |
-| POST | `/api/documents` | Upload a document (base64 body) |
+| GET | `/api/documents` | List all user documents |
+| POST | `/api/documents` | Upload a document |
 | GET | `/api/documents/{id}` | Get document metadata |
 | DELETE | `/api/documents/{id}` | Delete document (S3 + DB) |
-| GET | `/api/documents/{id}/download` | Get presigned download URL |
-| GET | `/api/documents/{id}/view` | Get presigned view URL |
+| GET | `/api/documents/{id}/download` | Presigned download URL |
+| GET | `/api/documents/{id}/view` | Presigned view URL |
+
+### Textract Adapters
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/api/textract/adapters` | List available custom adapters (calls `get_adapter` per adapter to include description + default queries) |
 
 ### Data Tables
 | Method | Endpoint | Description |
@@ -578,27 +538,23 @@ All endpoints (except auth) require `Authorization: Bearer <JWT>` header.
 | GET | `/api/data/tables/{id}` | Get table with fields |
 | PUT | `/api/data/tables/{id}` | Update table |
 | DELETE | `/api/data/tables/{id}` | Delete table |
+| POST | `/api/data/tables/{id}/fields` | Add a field to a table |
 
 ### Data Rows
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/data/tables/{id}/rows` | List all rows |
-| POST | `/api/data/tables/{id}/rows` | Insert a new row |
+| POST | `/api/data/tables/{id}/rows` | Insert rows |
 | GET | `/api/data/tables/{id}/rows/{rowId}` | Get single row |
 | PUT | `/api/data/tables/{id}/rows/{rowId}` | Update row |
 | DELETE | `/api/data/tables/{id}/rows/{rowId}` | Delete row |
 
-### Field Mappings
+### Field Mappings & Import
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/data/tables/{id}/mappings` | List field mappings |
 | POST | `/api/data/tables/{id}/mappings` | Create mapping |
-| PUT | `/api/data/tables/{id}/mappings/{mid}` | Update mapping |
 | DELETE | `/api/data/tables/{id}/mappings/{mid}` | Delete mapping |
-
-### Data Import
-| Method | Endpoint | Description |
-|---|---|---|
 | POST | `/api/data/tables/{id}/import` | Import CSV data |
 
 ### Processing Jobs
@@ -609,7 +565,7 @@ All endpoints (except auth) require `Authorization: Bearer <JWT>` header.
 | GET | `/api/processing/jobs/next` | Worker: fetch next job |
 | POST | `/api/processing/jobs/{id}` | Worker: update job status |
 
-### Health Check
+### Health
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/health` | API health check |
@@ -618,19 +574,11 @@ All endpoints (except auth) require `Authorization: Bearer <JWT>` header.
 
 ## Prerequisites
 
-### Required
 - **Node.js** 18+ and **npm**
-- **AWS Account** with IAM user/role having admin permissions
-- **AWS CLI v2** configured with credentials (`aws configure`)
+- **AWS Account** with IAM credentials (admin permissions)
+- **AWS CLI v2** configured (`aws configure`)
 - **Terraform** 1.0+
-- **Git**
-
-### For OCR Worker Deployment
-- **Docker** (for building OCR worker container image)
-
-### Optional (Local Development)
-- **Python 3.11** (for testing Lambda code locally)
-- **PostgreSQL** (for local database testing)
+- **Docker** (for OCR worker container builds — must support `linux/amd64`)
 
 ---
 
@@ -646,13 +594,10 @@ npm install
 
 ### 2. Configure Environment
 
-Create `.env.local` in the project root:
+Create `.env.local`:
 
 ```env
-# API Gateway URL (from terraform output)
 NEXT_PUBLIC_LOCAL_API_BASE=https://<api-id>.execute-api.us-west-1.amazonaws.com/api
-
-# Cognito Configuration (from terraform output)
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=us-west-1_XXXXXXXXX
 NEXT_PUBLIC_COGNITO_CLIENT_ID=XXXXXXXXXXXXXXXXXXXXXXXXXX
 NEXT_PUBLIC_AWS_REGION=us-west-1
@@ -662,446 +607,191 @@ NEXT_PUBLIC_AWS_REGION=us-west-1
 
 ```bash
 npm run dev
+# → http://localhost:3000 (connects to live AWS backend)
 ```
-
-The app runs at `http://localhost:3000` and connects to the live AWS backend.
 
 ---
 
 ## AWS Deployment Guide
 
-Complete guide to deploy DocuPop from scratch on AWS.
-
 ### Step 1: Terraform Infrastructure
-
-Terraform provisions ~62 AWS resources: VPC, subnets, NAT Gateway, RDS, S3, SQS, Lambda functions, API Gateway, Cognito, ECR, IAM roles, and CloudWatch log groups.
 
 ```bash
 cd infrastructure/terraform
-
-# Initialize Terraform
 terraform init
-
-# Create terraform.tfvars (copy from example and customize)
 cp terraform.tfvars.example terraform.tfvars
-```
+# Edit terraform.tfvars with your values
 
-Edit `terraform.tfvars` with your values:
-
-```hcl
-# Project
-project_name = "docupop"
-environment  = "staging"
-aws_region   = "us-west-1"
-
-# Database
-db_name                = "docupop"
-db_master_username     = "docupop_admin"
-db_min_capacity        = 0.5
-db_max_capacity        = 4
-db_skip_final_snapshot = true
-db_deletion_protection = false
-
-# S3
-s3_force_destroy = true
-
-# Lambda
-lambda_api_memory  = 512
-lambda_api_timeout = 30
-lambda_ocr_memory  = 1536
-lambda_ocr_timeout = 300
-
-# CORS - Update with your Amplify URL after Step 4
-allowed_origins = [
-  "http://localhost:3000",
-  "https://main.<amplify-app-id>.amplifyapp.com",
-  "https://<amplify-app-id>.amplifyapp.com"
-]
-
-# GitHub (for Amplify)
-github_repository_url = "https://github.com/<your-username>/<your-repo>"
-```
-
-Deploy infrastructure:
-
-```bash
-# Set GitHub token for Amplify
-export TF_VAR_github_access_token="ghp_your_github_pat_here"
-
-# Preview changes
+export TF_VAR_github_access_token="ghp_your_pat"
 terraform plan
-
-# Deploy (~10-15 minutes)
-terraform apply
+terraform apply   # ~10-15 minutes, ~62 resources
+terraform output  # save the outputs
 ```
 
-Save the outputs - you'll need them:
-
-```bash
-terraform output
-```
-
-Key outputs:
-- `api_gateway_id` - API Gateway ID for constructing the URL
-- `cognito_user_pool_id` - Cognito User Pool ID
-- `cognito_client_id` - Cognito App Client ID
-- `api_lambda_function_name` - Lambda function name for code updates
-- `ecr_repository_url` - ECR URL for OCR worker images
-- `s3_bucket_name` - Document storage bucket
-- `database_endpoint` - RDS endpoint (sensitive)
+Key outputs: `api_gateway_id`, `cognito_user_pool_id`, `cognito_client_id`, `ecr_repository_url`
 
 ### Step 2: Deploy API Lambda
 
-The API Lambda runs all backend logic. Package and deploy it:
-
 ```bash
 cd infrastructure/lambda/api
-
-# Install Python dependencies locally
 pip install pg8000 scramp asn1crypto -t .
-
-# Package everything into a ZIP
-zip -r /tmp/api-lambda.zip handler.py pg8000/ scramp/ asn1crypto/ \
-  -x "*.pyc" "__pycache__/*"
-
-# Deploy to AWS
+zip -r /tmp/api-lambda.zip .
 aws lambda update-function-code \
   --function-name docupop-staging-api \
   --zip-file fileb:///tmp/api-lambda.zip \
   --region us-west-1
 ```
 
-### Step 3: Deploy OCR Worker
+> **Important**: Zip the entire directory (not just `handler.py`) to include all Python dependencies.
 
-The OCR worker runs as a container image Lambda:
+### Step 3: Deploy OCR Worker
 
 ```bash
 cd services/ocr-worker
 
-# Build Docker image (must target linux/amd64 for Lambda)
+# Build for Lambda (must be linux/amd64, not ARM)
 docker buildx build --platform linux/amd64 \
   -f Dockerfile.lambda \
-  -t 925091290325.dkr.ecr.us-west-1.amazonaws.com/docupop-staging-ocr-worker:latest \
+  -t <ecr-url>:latest \
   --provenance=false --sbom=false .
 
-# Login to ECR
 aws ecr get-login-password --region us-west-1 | \
-  docker login --username AWS --password-stdin \
-  925091290325.dkr.ecr.us-west-1.amazonaws.com
+  docker login --username AWS --password-stdin <ecr-url>
 
-# Push image
-docker push 925091290325.dkr.ecr.us-west-1.amazonaws.com/docupop-staging-ocr-worker:latest
+docker push <ecr-url>:latest
 
-# Update Lambda to use new image
 aws lambda update-function-code \
   --function-name docupop-staging-ocr-worker \
-  --image-uri 925091290325.dkr.ecr.us-west-1.amazonaws.com/docupop-staging-ocr-worker:latest \
+  --image-uri <ecr-url>:latest \
   --region us-west-1
 ```
 
-### Step 4: Create Amplify App
+### Step 4: Amplify Frontend
 
-Create the Amplify app via AWS CLI with the correct SSR platform:
-
-```bash
-# Get API Gateway URL from terraform output
-API_URL="https://$(terraform -chdir=infrastructure/terraform output -raw api_gateway_id).execute-api.us-west-1.amazonaws.com/api"
-POOL_ID=$(terraform -chdir=infrastructure/terraform output -raw cognito_user_pool_id)
-CLIENT_ID=$(terraform -chdir=infrastructure/terraform output -raw cognito_client_id)
-
-aws amplify create-app \
-  --name "docupop-staging" \
-  --repository "https://github.com/<your-username>/<your-repo>" \
-  --access-token "<your-github-pat>" \
-  --platform "WEB_COMPUTE" \
-  --region us-west-1 \
-  --environment-variables "{
-    \"NEXT_PUBLIC_LOCAL_API_BASE\": \"$API_URL\",
-    \"NEXT_PUBLIC_COGNITO_USER_POOL_ID\": \"$POOL_ID\",
-    \"NEXT_PUBLIC_COGNITO_CLIENT_ID\": \"$CLIENT_ID\",
-    \"NEXT_PUBLIC_AWS_REGION\": \"us-west-1\"
-  }" \
-  --build-spec "
-version: 1
-frontend:
-  phases:
-    preBuild:
-      commands:
-        - npm ci
-    build:
-      commands:
-        - echo \"NEXT_PUBLIC_LOCAL_API_BASE=$API_URL\" >> .env.production
-        - echo \"NEXT_PUBLIC_COGNITO_USER_POOL_ID=$POOL_ID\" >> .env.production
-        - echo \"NEXT_PUBLIC_COGNITO_CLIENT_ID=$CLIENT_ID\" >> .env.production
-        - echo \"NEXT_PUBLIC_AWS_REGION=us-west-1\" >> .env.production
-        - npm run build
-  artifacts:
-    baseDirectory: .next
-    files:
-      - '**/*'
-  cache:
-    paths:
-      - .next/cache/**/*
-      - node_modules/**/*
-"
-```
-
-Then create and deploy the main branch:
+Amplify is configured by Terraform and auto-deploys on every push to `main`. After the first `terraform apply`, trigger the initial build:
 
 ```bash
-APP_ID="<amplify-app-id-from-above>"
-
-# Create branch
-aws amplify create-branch \
-  --app-id $APP_ID \
-  --branch-name main \
-  --framework "Next.js - SSR" \
-  --region us-west-1
-
-# Trigger first build
 aws amplify start-job \
-  --app-id $APP_ID \
+  --app-id <amplify-app-id> \
   --branch-name main \
   --job-type RELEASE \
   --region us-west-1
 ```
 
-Your frontend will be available at: `https://main.<app-id>.amplifyapp.com`
-
-> **Important**: The build spec hardcodes environment variables using `echo` commands because Amplify app-level environment variables may not propagate to the Next.js build process for `NEXT_PUBLIC_` variables.
+Frontend URL: `https://production.<app-id>.amplifyapp.com`
 
 ### Step 5: Update CORS Origins
 
-After creating the Amplify app, update the CORS configuration with the new Amplify domain:
-
-**1. Update `infrastructure/lambda/api/handler.py`:**
-
-Find the `defaults` list in `create_cors_response()` and update the Amplify URLs:
-
-```python
-defaults = [
-    'https://main.<your-app-id>.amplifyapp.com',
-    'https://<your-app-id>.amplifyapp.com',
-    'http://localhost:3000',
-]
-```
-
-Also update the fallback origin:
-
-```python
-allow_origin = 'https://main.<your-app-id>.amplifyapp.com'
-```
-
-**2. Update `infrastructure/terraform/api-gateway.tf`:**
-
-Update the OPTIONS CORS response:
-
-```hcl
-"method.response.header.Access-Control-Allow-Origin" = "'https://main.<your-app-id>.amplifyapp.com'"
-```
-
-**3. Update `infrastructure/terraform/terraform.tfvars`:**
-
-```hcl
-allowed_origins = [
-  "http://localhost:3000",
-  "https://main.<your-app-id>.amplifyapp.com",
-  "https://<your-app-id>.amplifyapp.com"
-]
-```
-
-**4. Redeploy:**
-
-```bash
-# Repackage and deploy Lambda
-cd infrastructure/lambda/api
-zip -r /tmp/api-lambda.zip handler.py pg8000/ scramp/ asn1crypto/
-aws lambda update-function-code \
-  --function-name docupop-staging-api \
-  --zip-file fileb:///tmp/api-lambda.zip \
-  --region us-west-1
-
-# Apply terraform changes
-cd infrastructure/terraform
-export TF_VAR_github_access_token="<your-pat>"
-terraform apply
-
-# Force redeploy API Gateway
-aws apigateway create-deployment \
-  --rest-api-id <api-gateway-id> \
-  --stage-name api \
-  --region us-west-1
-```
+After getting your Amplify URL, update `handler.py` (defaults list), `api-gateway.tf`, and `terraform.tfvars` with the Amplify domain, then redeploy Lambda and run `terraform apply`.
 
 ---
 
 ## Environment Variables
 
-### Frontend (.env.local / Amplify)
-
-| Variable | Description | Example |
-|---|---|---|
-| `NEXT_PUBLIC_LOCAL_API_BASE` | API Gateway base URL | `https://abc123.execute-api.us-west-1.amazonaws.com/api` |
-| `NEXT_PUBLIC_COGNITO_USER_POOL_ID` | Cognito User Pool ID | `us-west-1_ABC123` |
-| `NEXT_PUBLIC_COGNITO_CLIENT_ID` | Cognito App Client ID | `1234567890abcdef` |
-| `NEXT_PUBLIC_AWS_REGION` | AWS region | `us-west-1` |
-
-### API Lambda (Set by Terraform)
-
+### Frontend (`.env.local` / Amplify)
 | Variable | Description |
 |---|---|
-| `DB_HOST` | RDS endpoint |
-| `DB_PORT` | Database port (5432) |
-| `DB_NAME` | Database name |
-| `DB_USER` | Database username |
-| `DB_PASSWORD` | Database password |
-| `S3_BUCKET` | Document storage bucket name |
-| `SQS_QUEUE_URL` | OCR job queue URL |
-| `COGNITO_USER_POOL_ID` | Cognito User Pool ID |
-| `COGNITO_CLIENT_ID` | Cognito App Client ID |
-| `ALLOWED_ORIGINS` | JSON array of allowed CORS origins |
-| `AWS_REGION` | AWS region |
+| `NEXT_PUBLIC_LOCAL_API_BASE` | API Gateway base URL |
+| `NEXT_PUBLIC_COGNITO_USER_POOL_ID` | Cognito User Pool ID |
+| `NEXT_PUBLIC_COGNITO_CLIENT_ID` | Cognito App Client ID |
+| `NEXT_PUBLIC_AWS_REGION` | AWS region |
 
-### OCR Worker Lambda (Set by Terraform)
+### API Lambda (set by Terraform)
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `S3_BUCKET`, `SQS_QUEUE_URL`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `ALLOWED_ORIGINS`, `AWS_REGION`
 
-| Variable | Description |
-|---|---|
-| `DB_HOST` | RDS endpoint |
-| `DB_PORT` | Database port |
-| `DB_NAME` | Database name |
-| `DB_SECRET_ARN` | Secrets Manager ARN for DB credentials |
-| `S3_BUCKET` | Document storage bucket name |
-| `SQS_QUEUE_URL` | OCR job queue URL |
-| `AWS_REGION` | AWS region |
+### OCR Worker Lambda (set by Terraform)
+`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_SECRET_ARN`, `S3_BUCKET`, `SQS_QUEUE_URL`, `AWS_REGION`
 
 ---
 
 ## CI/CD Pipeline
 
-GitHub Actions automates testing and deployment on push to `main` or `staging`.
+Amplify auto-deploys the frontend on every push to `main`. GitHub Actions handles Lambda and infrastructure updates:
 
-### Pipeline Steps
-
-1. **Frontend CI**: `npm ci` -> lint -> `npm run build`
-2. **API Lambda Deploy**: Package Python code -> `aws lambda update-function-code`
-3. **OCR Worker Deploy**: Build Docker -> Push to ECR -> Update Lambda
-4. **Infrastructure** (Optional): `terraform plan` / `terraform apply`
+1. **Frontend CI**: `npm ci` → lint → `npm run build`
+2. **API Lambda**: Package → `aws lambda update-function-code`
+3. **OCR Worker**: Docker build → ECR push → Lambda update
+4. **Infrastructure**: `terraform plan` / `terraform apply`
 
 ### Required GitHub Secrets
-
 | Secret | Description |
 |---|---|
 | `AWS_ACCESS_KEY_ID` | IAM user access key |
 | `AWS_SECRET_ACCESS_KEY` | IAM user secret key |
 
-### Amplify Auto-Deploy
-
-Amplify is connected to the GitHub repository. When code is pushed to `main`, Amplify automatically:
-1. Pulls the latest code
-2. Runs `npm ci`
-3. Writes env vars to `.env.production`
-4. Runs `npm run build`
-5. Deploys the SSR application
-
 ---
 
 ## Teardown
 
-To remove all AWS resources and stop incurring costs:
-
 ```bash
 cd infrastructure/terraform
-
-# Set the GitHub token (required by Terraform)
 export TF_VAR_github_access_token="<your-pat>"
-
-# Destroy all resources (~5-10 minutes)
 terraform destroy
 ```
 
-If ECR repository fails to delete (non-empty):
-
+If ECR deletion fails (non-empty repository):
 ```bash
 aws ecr delete-repository \
   --repository-name docupop-staging-ocr-worker \
-  --force \
-  --region us-west-1
+  --force --region us-west-1
 ```
 
-If Secrets Manager secret fails (scheduled for deletion):
-
+If Secrets Manager deletion fails:
 ```bash
 aws secretsmanager delete-secret \
   --secret-id "docupop-staging/database-credentials" \
-  --force-delete-without-recovery \
-  --region us-west-1
+  --force-delete-without-recovery --region us-west-1
 ```
 
-Delete the Amplify app separately (if created via CLI, not Terraform):
-
-```bash
-aws amplify delete-app --app-id <app-id> --region us-west-1
-```
-
-> **Note**: Always verify in the AWS Console that no resources remain (check VPCs, NAT Gateways, Elastic IPs).
+> Always verify in the AWS Console that NAT Gateways and Elastic IPs are released — they continue to incur charges if orphaned.
 
 ---
 
 ## Troubleshooting
 
 ### CORS Errors
-- **Symptom**: Browser shows `Access-Control-Allow-Origin` errors
-- **Cause**: Frontend origin not in Lambda's allowed origins list or API Gateway OPTIONS response
-- **Fix**: Update the Amplify domain in `handler.py`, `api-gateway.tf`, and `terraform.tfvars`, then redeploy Lambda and force API Gateway redeployment
+Update the Amplify domain in `handler.py`, `api-gateway.tf`, and `terraform.tfvars`, then redeploy Lambda and force API Gateway redeployment.
 
 ### 401 Unauthorized
-- **Symptom**: API calls return 401
-- **Cause**: JWT token expired or invalid
-- **Fix**: Check that Cognito User Pool ID and Client ID match between frontend and backend. Try logging out and back in.
-
-### "Failed to fetch" on Signup/Login
-- **Cause 1**: `NEXT_PUBLIC_LOCAL_API_BASE` has `/api` suffix causing double `/api/api/...` path
-- **Fix**: Ensure the env var does NOT end with `/api` if routes already include it, or ensure it does if routes don't
-- **Cause 2**: Environment variable not baked into the Amplify build
-- **Fix**: Use `echo` commands in the build spec to write vars to `.env.production`
+Check that `COGNITO_USER_POOL_ID` and `COGNITO_CLIENT_ID` match between frontend and backend. Try logging out and back in.
 
 ### OCR Jobs Stuck in "Pending"
-- **Cause**: OCR Worker Lambda not deployed or no Docker image in ECR
-- **Fix**: Build and push the Docker image to ECR, then update the Lambda function code
+Build and push the Docker image to ECR, then update the Lambda function code. Check CloudWatch logs for the OCR worker.
+
+### Textract AccessDeniedException with Adapter
+Custom adapters only exist in `us-east-1`. The OCR worker uses a dedicated `us-east-1` Textract client for adapter calls — ensure the Lambda IAM role has `textract:*` in `us-east-1`.
+
+### Textract InvalidS3ObjectException with Adapter
+Cross-region S3 access: Textract in `us-east-1` cannot access S3 in `us-west-1`. The OCR worker downloads document bytes in-Lambda and passes them as `Document.Bytes` to resolve this.
+
+### Lambda Deploy Fails with "No module named X"
+Zip the entire `infrastructure/lambda/api/` directory, not just `handler.py`. All Python dependencies must be included in the zip.
+
+### Default Queries Not Auto-Populating
+Encode queries in the adapter's Description field: `queries:FirstName|LastName|Total`. The API calls `get_adapter` per adapter (since `list_adapters` omits the Description field) and parses this format.
 
 ### Database Connection Errors
-- **Cause**: Lambda not in the correct VPC/subnets, or security group not allowing port 5432
-- **Fix**: Verify Lambda VPC config in Terraform, check security group rules
-
-### Logout on Page Refresh
-- **Cause**: `ensure_user_in_db` raising an exception, causing `/auth/me` to return 401
-- **Fix**: The handler catches DB errors gracefully - ensure you have the latest handler.py deployed
-
-### Document Delete "ID Not Found"
-- **Cause**: Path parsing mismatch between API Gateway and Lambda
-- **Fix**: Use `extract_id_from_path()` helper in handler.py (already implemented)
+Verify Lambda VPC config in Terraform. Security group must allow port 5432 from Lambda's security group. Both Lambda functions must be in the same VPC as RDS.
 
 ---
 
 ## Sample Documents
 
-The `sample-docs/` directory contains test documents for demo purposes:
+`sample-docs/` contains 15 test documents — 3 document types × 5 formats. Each file has unique data and field names matching the corresponding CSV columns exactly.
 
-| Document | Type | Use Case |
+| Type | Formats | CSV Fields |
 |---|---|---|
-| `invoice-sample.pdf` | Invoice | Extract line items, totals, dates, vendor info |
-| `employee-record.pdf` | HR Form | Extract employee details, dates, department |
-| `patient-intake-form.pdf` | Medical Form | Extract patient info, medical history |
+| Employee Record | PDF, JPG, PNG, TIFF, WEBP | EmployeeID, FirstName, LastName, Department, JobTitle, Salary, StartDate, Email, Phone, Status |
+| Invoice | PDF, JPG, PNG, TIFF, WEBP | InvoiceNumber, Date, Vendor, Description, Quantity, UnitPrice, Subtotal, Tax, Total, DueDate, Status |
+| Patient Record | PDF, JPG, PNG, TIFF, WEBP | PatientID, FirstName, LastName, DateOfBirth, Gender, Phone, Email, Address, InsuranceProvider, InsuranceID, PrimaryCondition, Physician, AdmissionDate, Status |
 
 ---
 
 ## License
 
-This project was developed for CPSC-597 at California State University, Fullerton.
-
----
+Developed for CPSC-597 at California State University, Fullerton.
 
 ## Author
 
-**Abhishek Jani**
+**Abhishek Jani**  
 MS Computer Science, Cal State Fullerton
