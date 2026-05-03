@@ -37,6 +37,7 @@ export default function DashboardPage() {
   const [tables, setTables] = useState<DataTable[]>([]);
   const [allRows, setAllRows] = useState<DataRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tableRows, setTableRows] = useState<Record<string, DataRow[]>>({});
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -129,9 +130,7 @@ export default function DashboardPage() {
     { name: "No Adapter",   confidence: parseFloat(avgOf(noAdapterJobs).toFixed(1)), fill: COLORS.gray },
   ];
 
-  // Avg confidence per table (from allRows — we need to track which rows belong to which table)
-  // We load rows per table so let's recalculate
-  const [tableRows, setTableRows] = useState<Record<string, DataRow[]>>({});
+  // Avg confidence per table
   useEffect(() => {
     if (tables.length === 0) return;
     Promise.all(tables.map(t => apiService.listDataRows(t.id).then(rows => ({ id: t.id, rows }))))
