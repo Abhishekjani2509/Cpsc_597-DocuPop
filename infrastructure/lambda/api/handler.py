@@ -230,7 +230,7 @@ def verify_cognito_token(token: str) -> dict:
 def get_user_from_cognito(user_sub):
     """Fetch user details from Cognito if needed"""
     try:
-        cognito = boto3.client('cognito-idp')
+        cognito = boto3.client('cognito-idp', region_name=os.getenv("AWS_DEFAULT_REGION", "us-west-1"))
         user_pool_id = os.getenv("COGNITO_USER_POOL_ID", "")
 
         # List users with the sub filter
@@ -474,13 +474,30 @@ def handle_confirm_signup(event, context):
                     access_token = auth_resp['AuthenticationResult']['AccessToken']
                     user_info = cognito.get_user(AccessToken=access_token)
                     attrs = {a['Name']: a['Value'] for a in user_info.get('UserAttributes', [])}
+                    user_sub  = attrs.get("sub", "")
+                    user_name = attrs.get("name", "User")
+
+                    # Create user in PostgreSQL immediately so FK constraints work
+                    try:
+                        conn = get_database_connection()
+                        cur  = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO users (id, email, name, created_at) VALUES (%s, %s, %s, NOW()) ON CONFLICT (id) DO NOTHING",
+                            (user_sub, email, user_name)
+                        )
+                        conn.commit()
+                        cur.close()
+                        conn.close()
+                    except Exception as db_err:
+                        print(f"WARNING: Could not create user in DB during confirm_signup: {db_err}")
+
                     return create_cors_response(200, {
-                        "user": {"id": attrs.get("sub", ""), "email": email, "name": attrs.get("name", "")},
+                        "user": {"id": user_sub, "email": email, "name": user_name},
                         "token": access_token,
                         "confirmed": True,
                     }, origin=origin)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Auto-login after confirm failed: {e}")
 
         return create_cors_response(200, {"confirmed": True, "message": "Email verified. You can now sign in."}, origin=origin)
 
