@@ -17,7 +17,10 @@ interface AuthContextType {
   loading: boolean;
   mfaState: MfaState | null;
   signIn: (email: string, password: string) => Promise<SignInResult>;
-  signUp: (email: string, password: string, name: string) => Promise<AuthUser>;
+  signUp: (email: string, password: string, name: string) => Promise<{ confirmationRequired: boolean; email: string; message?: string }>;
+  confirmSignUp: (email: string, code: string, password: string) => Promise<AuthUser | null>;
+  forgotPassword: (email: string) => Promise<void>;
+  confirmForgotPassword: (email: string, code: string, newPassword: string) => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
   verifyMfa: (mfaCode: string) => Promise<AuthUser>;
@@ -131,9 +134,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const signUp = async (email: string, password: string, name: string) => {
-    const currentUser = await authService.signUp(email, password, name);
-    setUser(currentUser);
-    return currentUser;
+    return authService.signUp(email, password, name);
+  };
+
+  const confirmSignUp = async (email: string, code: string, password: string) => {
+    const confirmedUser = await authService.confirmSignUp(email, code, password);
+    if (confirmedUser) setUser(confirmedUser);
+    return confirmedUser;
+  };
+
+  const forgotPassword = async (email: string) => {
+    return authService.forgotPassword(email);
+  };
+
+  const confirmForgotPassword = async (email: string, code: string, newPassword: string) => {
+    return authService.confirmForgotPassword(email, code, newPassword);
   };
 
   const signOut = async () => {
@@ -154,6 +169,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     mfaState,
     signIn,
     signUp,
+    confirmSignUp,
+    forgotPassword,
+    confirmForgotPassword,
     signOut,
     refresh,
     verifyMfa,

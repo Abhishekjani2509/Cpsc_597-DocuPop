@@ -418,54 +418,13 @@ def handle_signup(event, context):
         )
 
         user_sub = signup_response.get("UserSub")
-        user_confirmed = signup_response.get("UserConfirmed", False)
 
-        # Auto-confirm user if not already confirmed (for development)
-        if not user_confirmed:
-            try:
-                cognito.admin_confirm_sign_up(
-                    UserPoolId=os.environ["COGNITO_USER_POOL_ID"],
-                    Username=username
-                )
-                user_confirmed = True
-            except:
-                pass  # If admin confirm fails, continue
-
-        # If user is confirmed, log them in and return token
-        if user_confirmed:
-            try:
-                # Use the UUID username we just created for auto-login
-                auth_response = cognito.admin_initiate_auth(
-                    UserPoolId=os.environ["COGNITO_USER_POOL_ID"],
-                    ClientId=os.environ["COGNITO_CLIENT_ID"],
-                    AuthFlow='ADMIN_USER_PASSWORD_AUTH',
-                    AuthParameters={
-                        'USERNAME': username,  # Use UUID username, not email
-                        'PASSWORD': password
-                    }
-                )
-
-                if auth_response.get('AuthenticationResult'):
-                    access_token = auth_response['AuthenticationResult']['AccessToken']
-                    return create_cors_response(200, {
-                        "user": {
-                            "id": user_sub,
-                            "email": email,
-                            "name": name
-                        },
-                        "token": access_token,
-                        "confirmationRequired": False
-                    }, origin=origin)
-            except:
-                pass  # If login fails, just return without token
-
+        # Cognito sends OTP to the user's email — require confirmation
         return create_cors_response(200, {
-            "user": {
-                "id": user_sub,
-                "email": email,
-                "name": name
-            },
-            "confirmationRequired": not user_confirmed
+            "userId": user_sub,
+            "email": email,
+            "confirmationRequired": True,
+            "message": "Verification code sent to your email"
         }, origin=origin)
 
     except ClientError as e:
@@ -482,6 +441,123 @@ def handle_signup(event, context):
             return create_cors_response(400, {"error": error_msg}, origin=origin)
     except Exception as e:
         return create_cors_response(500, {"error": str(e)}, origin=origin)
+
+
+def handle_confirm_signup(event, context):
+    """Confirm signup with the OTP code sent to email, then auto-login."""
+    origin = get_origin(event)
+    try:
+        data     = json.loads(event.get("body", "{}"))
+        email    = data.get("email", "").strip().lower()
+        code     = data.get("code", "").strip()
+        password = data.get("password", "")
+
+        if not email or not code:
+            return create_cors_response(400, {"error": "Email and verification code are required"}, origin=origin)
+
+        cognito = boto3.client('cognito-idp', region_name=os.getenv("AWS_DEFAULT_REGION", "us-west-1"))
+        cognito.confirm_sign_up(
+            ClientId=os.environ["COGNITO_CLIENT_ID"],
+            Username=email,
+            ConfirmationCode=code,
+        )
+
+        if password:
+            try:
+                auth_resp = cognito.admin_initiate_auth(
+                    UserPoolId=os.environ["COGNITO_USER_POOL_ID"],
+                    ClientId=os.environ["COGNITO_CLIENT_ID"],
+                    AuthFlow='ADMIN_USER_PASSWORD_AUTH',
+                    AuthParameters={'USERNAME': email, 'PASSWORD': password},
+                )
+                if auth_resp.get('AuthenticationResult'):
+                    access_token = auth_resp['AuthenticationResult']['AccessToken']
+                    user_info = cognito.get_user(AccessToken=access_token)
+                    attrs = {a['Name']: a['Value'] for a in user_info.get('UserAttributes', [])}
+                    return create_cors_response(200, {
+                        "user": {"id": attrs.get("sub", ""), "email": email, "name": attrs.get("name", "")},
+                        "token": access_token,
+                        "confirmed": True,
+                    }, origin=origin)
+            except Exception:
+                pass
+
+        return create_cors_response(200, {"confirmed": True, "message": "Email verified. You can now sign in."}, origin=origin)
+
+    except ClientError as e:
+        err = e.response['Error']['Code']
+        if err == 'CodeMismatchException':
+            return create_cors_response(400, {"error": "Invalid verification code"}, origin=origin)
+        elif err == 'ExpiredCodeException':
+            return create_cors_response(400, {"error": "Verification code has expired. Please request a new one."}, origin=origin)
+        elif err == 'NotAuthorizedException':
+            return create_cors_response(400, {"error": "User is already confirmed"}, origin=origin)
+        return create_cors_response(400, {"error": e.response['Error']['Message']}, origin=origin)
+    except Exception as e:
+        return create_cors_response(500, {"error": str(e)}, origin=origin)
+
+
+def handle_forgot_password(event, context):
+    """Initiate password reset — Cognito sends OTP to the user's email."""
+    origin = get_origin(event)
+    try:
+        data  = json.loads(event.get("body", "{}"))
+        email = data.get("email", "").strip().lower()
+
+        if not email:
+            return create_cors_response(400, {"error": "Email is required"}, origin=origin)
+
+        cognito = boto3.client('cognito-idp', region_name=os.getenv("AWS_DEFAULT_REGION", "us-west-1"))
+        cognito.forgot_password(
+            ClientId=os.environ["COGNITO_CLIENT_ID"],
+            Username=email,
+        )
+        return create_cors_response(200, {"message": "Password reset code sent to your email"}, origin=origin)
+
+    except ClientError as e:
+        err = e.response['Error']['Code']
+        if err == 'UserNotFoundException':
+            return create_cors_response(200, {"message": "If that email exists, a reset code was sent"}, origin=origin)
+        elif err == 'LimitExceededException':
+            return create_cors_response(429, {"error": "Too many requests. Please try again later."}, origin=origin)
+        return create_cors_response(400, {"error": e.response['Error']['Message']}, origin=origin)
+    except Exception as e:
+        return create_cors_response(500, {"error": str(e)}, origin=origin)
+
+
+def handle_confirm_forgot_password(event, context):
+    """Complete password reset with OTP code and new password."""
+    origin = get_origin(event)
+    try:
+        data         = json.loads(event.get("body", "{}"))
+        email        = data.get("email", "").strip().lower()
+        code         = data.get("code", "").strip()
+        new_password = data.get("newPassword", "")
+
+        if not email or not code or not new_password:
+            return create_cors_response(400, {"error": "Email, code, and new password are required"}, origin=origin)
+
+        cognito = boto3.client('cognito-idp', region_name=os.getenv("AWS_DEFAULT_REGION", "us-west-1"))
+        cognito.confirm_forgot_password(
+            ClientId=os.environ["COGNITO_CLIENT_ID"],
+            Username=email,
+            ConfirmationCode=code,
+            Password=new_password,
+        )
+        return create_cors_response(200, {"message": "Password reset successfully. You can now sign in."}, origin=origin)
+
+    except ClientError as e:
+        err = e.response['Error']['Code']
+        if err == 'CodeMismatchException':
+            return create_cors_response(400, {"error": "Invalid reset code"}, origin=origin)
+        elif err == 'ExpiredCodeException':
+            return create_cors_response(400, {"error": "Reset code has expired. Please request a new one."}, origin=origin)
+        elif err == 'InvalidPasswordException':
+            return create_cors_response(400, {"error": "Password must be at least 8 characters with uppercase, lowercase, and a number"}, origin=origin)
+        return create_cors_response(400, {"error": e.response['Error']['Message']}, origin=origin)
+    except Exception as e:
+        return create_cors_response(500, {"error": str(e)}, origin=origin)
+
 
 def handle_login(event, context):
     """Cognito login"""
@@ -2548,6 +2624,12 @@ def handler(event, context):
         # Auth routes
         elif method == "POST" and path == "/api/auth/signup":
             return handle_signup(event, context)
+        elif method == "POST" and path == "/api/auth/confirm-signup":
+            return handle_confirm_signup(event, context)
+        elif method == "POST" and path == "/api/auth/forgot-password":
+            return handle_forgot_password(event, context)
+        elif method == "POST" and path == "/api/auth/confirm-forgot-password":
+            return handle_confirm_forgot_password(event, context)
         elif method == "POST" and path == "/api/auth/login":
             return handle_login(event, context)
         elif method == "GET" and path == "/api/auth/me":

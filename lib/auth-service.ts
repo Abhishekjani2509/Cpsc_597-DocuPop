@@ -194,29 +194,47 @@ class AuthService {
     return data.user;
   }
 
-  async signUp(email: string, password: string, name: string): Promise<AuthUser & { confirmationRequired?: boolean; message?: string }> {
+  async signUp(email: string, password: string, name: string): Promise<{ confirmationRequired: boolean; email: string; message?: string }> {
     const data = await request<AuthResponse>('/signup', {
       method: 'POST',
       body: JSON.stringify({ email, password, name }),
     });
-    this.currentUser = data.user;
-
-    // Handle both token formats (accessToken for Cognito, token for local)
-    const authToken = data.accessToken || data.token;
-    if (authToken) {
-      this.setToken(authToken);
-      // Force localStorage update (Next.js SSR workaround)
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem('auth_token', authToken);
-      }
-    }
-
-    // Return user with confirmation status for Cognito
     return {
-      ...data.user,
-      confirmationRequired: data.confirmationRequired,
+      confirmationRequired: data.confirmationRequired ?? true,
+      email: data.email || email,
       message: data.message,
     };
+  }
+
+  async confirmSignUp(email: string, code: string, password: string): Promise<AuthUser | null> {
+    const data = await request<AuthResponse>('/confirm-signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, password }),
+    });
+    if (data.user) {
+      this.currentUser = data.user;
+      const authToken = data.accessToken || data.token;
+      if (authToken) {
+        this.setToken(authToken);
+        if (typeof window !== 'undefined') window.localStorage.setItem('auth_token', authToken);
+      }
+      return data.user;
+    }
+    return null;
+  }
+
+  async forgotPassword(email: string): Promise<void> {
+    await request<{ message: string }>('/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async confirmForgotPassword(email: string, code: string, newPassword: string): Promise<void> {
+    await request<{ message: string }>('/confirm-forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, newPassword }),
+    });
   }
 
   async signOut(): Promise<void> {
