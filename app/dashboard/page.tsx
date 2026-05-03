@@ -38,6 +38,8 @@ export default function DashboardPage() {
   const [allRows, setAllRows] = useState<DataRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [tableRows, setTableRows] = useState<Record<string, DataRow[]>>({});
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -153,7 +155,7 @@ export default function DashboardPage() {
     return { name: t.name.length > 12 ? t.name.slice(0, 12) + "…" : t.name, confidence: avg, rows: rows.length };
   });
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-10">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">Dashboard</h1>
