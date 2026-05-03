@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText, Download, Trash2, Eye, Upload } from "lucide-react";
+import { FileText, Download, Trash2, Eye, Upload, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { apiService, Document } from "@/lib/api";
 import { useRouter } from "next/navigation";
 import FileUpload from "@/components/FileUpload";
@@ -14,9 +15,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function DocumentsPage() {
   const router = useRouter();
-  const { user, loading, signOut } = useAuth();
+  const { user, loading } = useAuth();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [pageLoading, setPageLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const filteredDocs = documents.filter(d =>
+    d.filename.toLowerCase().includes(search.toLowerCase()) ||
+    d.content_type.toLowerCase().includes(search.toLowerCase())
+  );
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -137,9 +143,18 @@ export default function DocumentsPage() {
                 <span>Your Documents</span>
               </div>
               <span className="text-sm font-normal text-gray-500">
-                {documents.length} {documents.length === 1 ? 'document' : 'documents'}
+                {filteredDocs.length} of {documents.length} {documents.length === 1 ? 'document' : 'documents'}
               </span>
             </CardTitle>
+            <div className="relative mt-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search by filename or type…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
           </CardHeader>
           <CardContent className="pt-6">
             {documents.length === 0 ? (
@@ -148,9 +163,11 @@ export default function DocumentsPage() {
                 title="No documents uploaded yet"
                 description="Upload your first document to get started with OCR processing"
               />
+            ) : filteredDocs.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">No documents match &quot;{search}&quot;</p>
             ) : (
               <div className="space-y-3">
-                {documents.map((doc) => (
+                {filteredDocs.map((doc) => (
                   <Card
                     key={doc.id}
                     className="hover:shadow-md transition-all"

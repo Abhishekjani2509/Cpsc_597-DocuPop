@@ -217,12 +217,13 @@ export default function ProcessingPage() {
     loadJobs(true); // Initial load with loading state
     loadDocuments();
     loadTables();
-    // Polling refresh without loading state (prevents flickering)
-    const interval = setInterval(() => loadJobs(false), 5000);
-    return () => {
-      clearInterval(interval);
-    };
-  }, [user, loadJobs, loadDocuments, loadTables]);
+    // Poll only while jobs are active — stops automatically when queue is idle
+    const interval = setInterval(async () => {
+      const hasActive = jobs.some(j => j.status === "pending" || j.status === "processing");
+      if (hasActive) loadJobs(false);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [user, loadJobs, loadDocuments, loadTables, jobs]);
 
   // Load adapters when advanced panel is opened
   useEffect(() => {

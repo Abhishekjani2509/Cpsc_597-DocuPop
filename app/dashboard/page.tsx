@@ -6,7 +6,7 @@ import { apiService, ProcessingJob, DataTable, DataRow } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, Legend,
+  PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
 import {
   FileText, CheckCircle2, AlertCircle, Clock,
@@ -120,24 +120,14 @@ export default function DashboardPage() {
   });
   const timelineData = Object.entries(dayMap).map(([date, count]) => ({ date, count }));
 
-  // Rows per table
-  const tableRowData = tables.map(t => ({
-    name: t.name.length > 14 ? t.name.slice(0, 14) + "…" : t.name,
-    rows: allRows.filter(() => true).length, // placeholder — we'd need per-table count
-  }));
-  // Recalculate properly using per-table join
-  const tableRowCounts: Record<string, number> = {};
-  tables.forEach(t => { tableRowCounts[t.id] = 0; });
-  // We'll compute from the loaded tables
-  const tableBarData = tables.map(t => ({
-    name: t.name.length > 14 ? t.name.slice(0, 14) + "…" : t.name,
-    rows: 0,
-  }));
-
-  // Engine breakdown
-  const engineMap: Record<string, number> = {};
-  jobs.forEach(j => { engineMap[j.engine] = (engineMap[j.engine] || 0) + 1; });
-  const engineData = Object.entries(engineMap).map(([name, value]) => ({ name, value }));
+  // Adapter vs no-adapter confidence comparison
+  const adapterJobs    = jobs.filter(j => j.status === "completed" && j.result?.metadata?.used_adapter && typeof j.confidence === "number");
+  const noAdapterJobs  = jobs.filter(j => j.status === "completed" && !j.result?.metadata?.used_adapter && typeof j.confidence === "number");
+  const avgOf = (arr: ProcessingJob[]) => arr.length ? arr.reduce((s, j) => s + (j.confidence as number), 0) / arr.length * 100 : 0;
+  const adapterCompData = [
+    { name: "With Adapter", confidence: parseFloat(avgOf(adapterJobs).toFixed(1)), fill: COLORS.blue },
+    { name: "No Adapter",   confidence: parseFloat(avgOf(noAdapterJobs).toFixed(1)), fill: COLORS.gray },
+  ];
 
   // Avg confidence per table (from allRows — we need to track which rows belong to which table)
   // We load rows per table so let's recalculate
@@ -235,6 +225,39 @@ export default function DashboardPage() {
           )}
         </Card>
       </div>
+
+      {/* ── Adapter vs No-Adapter confidence comparison ── */}
+      {(adapterJobs.length > 0 || noAdapterJobs.length > 0) && (
+        <Card className="p-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-2"><TrendingUp className="h-4 w-4" />Adapter Impact on Confidence</h2>
+          <p className="text-xs text-gray-400 mb-4">Average confidence score — jobs processed with a custom adapter vs without</p>
+          <div className="flex items-end gap-6">
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={adapterCompData} barSize={60}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                <Tooltip formatter={(v: number) => [`${v}%`, "Avg Confidence"]} />
+                <Bar dataKey="confidence" radius={[6, 6, 0, 0]}>
+                  {adapterCompData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="shrink-0 space-y-3 pr-4 pb-2">
+              <div className="text-center">
+                <p className="text-3xl font-bold text-blue-600">{avgOf(adapterJobs).toFixed(1)}%</p>
+                <p className="text-xs text-gray-500 mt-0.5">With Adapter</p>
+                <p className="text-xs text-gray-400">{adapterJobs.length} job{adapterJobs.length !== 1 ? "s" : ""}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-3xl font-bold text-gray-400">{avgOf(noAdapterJobs).toFixed(1)}%</p>
+                <p className="text-xs text-gray-500 mt-0.5">No Adapter</p>
+                <p className="text-xs text-gray-400">{noAdapterJobs.length} job{noAdapterJobs.length !== 1 ? "s" : ""}</p>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* ── Row 2: Confidence Distribution + Table Stats ── */}
       <div className="grid gap-6 lg:grid-cols-2">
