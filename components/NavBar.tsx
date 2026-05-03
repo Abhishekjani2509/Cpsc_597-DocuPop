@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 
 const authLinks = [
   { href: '/', label: 'Home' },
+  { href: '/dashboard', label: 'Dashboard' },
   { href: '/documents', label: 'Documents' },
   { href: '/processing', label: 'Processing' },
   { href: '/data', label: 'Data' },

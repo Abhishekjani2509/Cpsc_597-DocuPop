@@ -43,6 +43,8 @@ export default function ProcessingPage() {
   const [jobs, setJobs] = useState<ProcessingJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<ProcessingJob | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Queue jobs state
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -542,7 +544,17 @@ export default function ProcessingPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => setSelectedJob(job)}
+                        onClick={async () => {
+                          setSelectedJob(job);
+                          setPreviewUrl(null);
+                          setPreviewLoading(true);
+                          try {
+                            const url = await apiService.getDocumentViewUrl(job.document_id);
+                            setPreviewUrl(url);
+                          } catch { /* preview unavailable */ } finally {
+                            setPreviewLoading(false);
+                          }
+                        }}
                       >
                         <FileText className="h-4 w-4 mr-2" />
                         View Raw Data
@@ -576,128 +588,117 @@ export default function ProcessingPage() {
         )}
       </Card>
 
-      {/* Raw Data Modal */}
+      {/* Document Preview Modal — split pane */}
       {selectedJob && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl max-h-[92vh] flex flex-col overflow-hidden">
+
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900">Raw OCR Data</h2>
-                <p className="text-sm text-gray-600 mt-1">
-                  Document #{selectedJob.document_id} • {selectedJob.engine}
-                </p>
+            <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-blue-500" />
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Document Preview</h2>
+                  <p className="text-xs text-gray-500">Doc #{selectedJob.document_id} · {selectedJob.engine} · <Badge variant={statusVariant(selectedJob.status)} className="text-xs">{formatStatus(selectedJob.status)}</Badge></p>
+                </div>
               </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setSelectedJob(null)}
-              >
-                <X className="h-5 w-5" />
-              </Button>
+              <div className="flex items-center gap-3">
+                {typeof selectedJob.confidence === "number" && (
+                  <div className="text-right">
+                    <p className="text-xs text-gray-400">Confidence</p>
+                    <p className={`text-lg font-bold ${selectedJob.confidence >= 0.9 ? "text-green-600" : selectedJob.confidence >= 0.7 ? "text-amber-500" : "text-red-500"}`}>
+                      {(selectedJob.confidence * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => { setSelectedJob(null); setPreviewUrl(null); }}>
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-auto p-6 space-y-6">
-              {/* Metadata */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Metadata</h3>
-                <div className="grid grid-cols-2 gap-4 bg-gray-50 rounded-lg p-4">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">Status</p>
-                    <Badge variant={statusVariant(selectedJob.status)} className="mt-1">
-                      {selectedJob.status}
-                    </Badge>
-                  </div>
-                  {typeof selectedJob.confidence === "number" && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Overall Confidence</p>
-                      <p className="text-lg font-semibold text-gray-900 mt-1">
-                        {(selectedJob.confidence * 100).toFixed(1)}%
-                      </p>
+            {/* Split pane body */}
+            <div className="flex flex-1 overflow-hidden">
+
+              {/* Left — document viewer */}
+              <div className="w-1/2 border-r bg-gray-50 flex flex-col">
+                <div className="px-4 py-2 border-b bg-white">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Source Document</p>
+                </div>
+                <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+                  {previewLoading ? (
+                    <div className="flex flex-col items-center gap-2 text-gray-400">
+                      <div className="w-8 h-8 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm">Loading document…</p>
                     </div>
-                  )}
-                  {selectedJob.target_table?.name && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Target Table</p>
-                      <p className="text-sm text-gray-900 mt-1">{selectedJob.target_table.name}</p>
-                    </div>
-                  )}
-                  {selectedJob.result?.metadata?.field_count && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Fields Extracted</p>
-                      <p className="text-sm text-gray-900 mt-1">{selectedJob.result.metadata.field_count}</p>
-                    </div>
-                  )}
-                  {selectedJob.result?.metadata?.engine && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Engine Used</p>
-                      <p className="text-sm text-gray-900 mt-1">{selectedJob.result.metadata.engine}</p>
-                    </div>
-                  )}
-                  {selectedJob.result?.metadata?.used_adapter && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Custom Adapter</p>
-                      <Badge variant="secondary" className="mt-1">Yes</Badge>
-                    </div>
-                  )}
-                  {selectedJob.result?.metadata?.query_count > 0 && (
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Queries Used</p>
-                      <p className="text-sm text-gray-900 mt-1">{selectedJob.result.metadata.query_count} queries</p>
+                  ) : previewUrl ? (
+                    <iframe
+                      src={previewUrl}
+                      className="w-full h-full rounded border shadow-sm bg-white"
+                      title="Document preview"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-2 text-gray-400">
+                      <FileText className="h-12 w-12 opacity-30" />
+                      <p className="text-sm">Preview unavailable</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Extracted Fields */}
-              {selectedJob.result?.fields && Object.keys(selectedJob.result.fields).length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Extracted Fields</h3>
-                  <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                    {Object.entries(selectedJob.result.fields).map(([key, value]: [string, any]) => (
-                      <div key={key} className="border-b border-gray-200 pb-3 last:border-0">
-                        <p className="text-sm font-medium text-gray-700">{key}</p>
-                        <div className="mt-1 flex items-center justify-between">
-                          <p className="text-sm text-gray-900">
-                            {value?.value || (typeof value === 'string' ? value : JSON.stringify(value))}
-                          </p>
-                          {typeof value?.confidence === 'number' && (
-                            <Badge variant="outline" className="ml-2">
-                              {(value.confidence * 100).toFixed(1)}%
-                            </Badge>
-                          )}
-                        </div>
+              {/* Right — extracted fields */}
+              <div className="w-1/2 flex flex-col overflow-hidden">
+                <div className="px-4 py-2 border-b bg-white">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Extracted Fields</p>
+                </div>
+                <div className="flex-1 overflow-auto p-4 space-y-4">
+
+                  {/* Fields */}
+                  {selectedJob.result?.fields && Object.keys(selectedJob.result.fields).length > 0 ? (
+                    <div className="space-y-2">
+                      {Object.entries(selectedJob.result.fields).map(([key, value]: [string, any]) => {
+                        const val = value?.value ?? (typeof value === "string" ? value : JSON.stringify(value));
+                        const conf = typeof value?.confidence === "number" ? value.confidence : null;
+                        const confColor = conf === null ? "text-gray-400" : conf >= 0.9 ? "text-green-600" : conf >= 0.7 ? "text-amber-500" : "text-red-500";
+                        const rowBg = conf !== null && conf < 0.7 ? "bg-red-50 border-red-100" : "bg-gray-50 border-gray-100";
+                        return (
+                          <div key={key} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${rowBg}`}>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium text-gray-500">{key}</p>
+                              <p className="text-sm font-semibold text-gray-900 truncate">{val || <span className="text-gray-300 italic">—</span>}</p>
+                            </div>
+                            {conf !== null && (
+                              <span className={`ml-3 text-sm font-bold shrink-0 ${confColor}`}>
+                                {(conf * 100).toFixed(0)}%
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center pt-8">No fields extracted</p>
+                  )}
+
+                  {/* Metadata chips */}
+                  <div className="flex flex-wrap gap-2 pt-2 border-t">
+                    {selectedJob.target_table?.name && <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full">→ {selectedJob.target_table.name}</span>}
+                    {selectedJob.result?.metadata?.used_adapter && <span className="text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded-full">Custom Adapter</span>}
+                    {selectedJob.result?.metadata?.query_count > 0 && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">{selectedJob.result.metadata.query_count} queries</span>}
+                    {selectedJob.result?.metadata?.field_count && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">{selectedJob.result.metadata.field_count} fields</span>}
+                  </div>
+
+                  {/* Raw text collapsible */}
+                  {selectedJob.result?.text && (
+                    <details className="pt-2">
+                      <summary className="text-xs font-semibold text-gray-500 cursor-pointer hover:text-gray-700 uppercase tracking-wide">Raw Text</summary>
+                      <div className="mt-2 bg-gray-900 text-gray-100 rounded-lg p-3 font-mono text-xs whitespace-pre-wrap max-h-48 overflow-auto">
+                        {selectedJob.result.text}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Raw Extracted Text */}
-              {selectedJob.result?.text && (
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3">Raw Extracted Text</h3>
-                  <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-auto">
-                    {selectedJob.result.text}
-                  </div>
-                </div>
-              )}
-
-              {/* Full Result JSON */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-3">Full Result (JSON)</h3>
-                <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-xs whitespace-pre-wrap max-h-96 overflow-auto">
-                  {JSON.stringify(selectedJob.result, null, 2)}
+                    </details>
+                  )}
                 </div>
               </div>
-            </div>
-
-            {/* Footer */}
-            <div className="border-t p-4 flex justify-end">
-              <Button onClick={() => setSelectedJob(null)}>
-                Close
-              </Button>
             </div>
           </div>
         </div>
