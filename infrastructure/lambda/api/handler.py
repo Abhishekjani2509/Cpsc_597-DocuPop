@@ -508,6 +508,18 @@ def handle_forgot_password(event, context):
             return create_cors_response(400, {"error": "Email is required"}, origin=origin)
 
         cognito = boto3.client('cognito-idp', region_name=os.getenv("AWS_DEFAULT_REGION", "us-west-1"))
+
+        # Ensure email_verified=true so forgot_password can deliver the code.
+        # Accounts created via the old auto-confirm flow may have email unverified.
+        try:
+            cognito.admin_update_user_attributes(
+                UserPoolId=os.environ["COGNITO_USER_POOL_ID"],
+                Username=email,
+                UserAttributes=[{'Name': 'email_verified', 'Value': 'true'}],
+            )
+        except Exception:
+            pass  # User not found or other issue — let forgot_password surface the real error
+
         cognito.forgot_password(
             ClientId=os.environ["COGNITO_CLIENT_ID"],
             Username=email,
